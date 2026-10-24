@@ -46,6 +46,11 @@ def test_repl_session_rounds_slash_and_status(workspace):
         + [
             "我想做一个记账 CLI",
             "/status",
+            "我不了解编程",
+            "自动每轮",
+            "AI 自动审核",
+            "默认技能包",
+            "/status",
             "嗯",  # 首入 build_ways：发 choice 断点
             "/status",
             "用完整文档",  # 决议通道输入 → build_way 写定
@@ -63,8 +68,13 @@ def test_repl_session_rounds_slash_and_status(workspace):
     out = "\n".join(io.outputs)
     # 非斜杠输入进主图，断点渲染
     assert "断点 · round" in out
-    # /status 展示仪表盘：task_brief 已被 ask_tasks 桩写入
+    # 四问渲染
+    assert "断点 · question" in out
+    assert "你的编程基础？" in out
+    assert "我不了解编程" in out  # Q1 选项
+    # /status 展示仪表盘
     assert "task_brief: 我想做一个记账 CLI" in out
+    assert "user_mode: novice" in out
     # choice 断点渲染：4 选项 + 推荐 + 一句话理由
     assert "断点 · choice:build_way" in out
     assert "轻 grill" in out

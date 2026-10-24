@@ -11,6 +11,12 @@ from typing import Any, Mapping, Optional
 
 from langchain_core.messages import HumanMessage
 
+from project_agent.onboarding import (
+    QUESTIONNAIRE,
+    interpret_answer,
+    next_unset_field,
+    question_for,
+)
 from project_agent.protocol import Role, TurnEndReason, validate_payload
 
 
@@ -124,14 +130,82 @@ def _todo_board(state: Mapping[str, Any] | None) -> list[str]:
     return board
 
 
+def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
+    """question 断点：问题文本 + 选项 + 提问角色（spec 断点协议表 question 行）。"""
+    text = spec.question_text
+    if hint and spec.novice_hint:
+        text = f"{text}{spec.novice_hint}"
+    payload = validate_payload(
+        TurnEndReason.QUESTION,
+        {
+            "question_text": text,
+            "options": list(spec.options),
+            "asker": Role.ACTOR.value,
+        },
+    )
+    return {
+        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "turn_end_payload": payload,
+        "awaiting_input_from": Role.ACTOR.value,
+    }
+
+
 def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """把首个自由输入记为任务简报（一次写定，再进不改写）。"""
+    """首启两层：问卷四问 → task_brief 一次写定。
+
+    - task_brief 已设 → {}（一次写定 + 01 遗留会话直达）
+    - 上一轮 turn_end_reason=="question"：最新人类消息=当前题答案——解释成功
+      写字段；四问全齐 → task_brief 从**首条**人类消息（原始想法）写定+round_end；
+      不可解释 → 重问本题（幂等零副作用）
+    - 非 question 后续 → 问第一未设题（首轮用户想法绝不当答案解释）
+    - 判"未设"：value is None or value == ""（skill_packs=[] 合法已设）
+    """
     if state.get("task_brief"):
         return {}
-    text = _latest_human_text(state)
-    if not text:
-        return {}
-    return {"task_brief": text, **_round_end(f"任务简报已记录：{text}", state)}
+
+    def _ask(field: str) -> dict[str, Any]:
+        spec = question_for(field)
+        hint = field == "guidance_pref" and state.get("user_mode") == "novice"
+        return _question_breakpoint(spec, hint=hint)
+
+    def _unset(dashboard: Mapping[str, Any]) -> str | None:
+        return next_unset_field(dashboard)
+
+    if state.get("turn_end_reason") == TurnEndReason.QUESTION.value:
+        current = _unset(state)
+        answer = _latest_human_text(state)
+        if current is not None and answer is not None:
+            spec = question_for(current)
+            value = interpret_answer(spec, answer)
+            if value is not None:
+                updated: dict[str, Any] = {current: value}
+                probe = dict(state)
+                probe.update(updated)
+                nxt = _unset(probe)
+                if nxt is None:
+                    # 四问全齐：task_brief 从首条人类消息（原始想法）写定
+                    brief = _first_human_text(state)
+                    if brief:
+                        return {
+                            **updated,
+                            "task_brief": brief,
+                            **_round_end(f"任务简报已记录：{brief}", state),
+                        }
+                return {**updated, **_ask(nxt)} if nxt is not None else updated
+        # 不可解释或无答案：重问当前题（幂等零副作用）
+        target = current if current is not None else _unset(state)
+        if target is not None:
+            return _ask(target)
+
+    # 非 question 后续 / 首轮：问第一未设题
+    field = _unset(state)
+    if field is not None:
+        return _ask(field)
+    # 问卷已齐但简报未写（异常兜底）：从首条人类消息写定
+    brief = _first_human_text(state)
+    if brief:
+        return {"task_brief": brief, **_round_end(f"任务简报已记录：{brief}", state)}
+    return {}
 
 
 def make_build_ways_node(model: Any = None):

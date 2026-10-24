@@ -15,7 +15,16 @@ _FAREWELL = "再见"
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
 _COMMANDS = ("/help", "/status", "/exit")
 
-_STATUS_FIELDS = ("task_brief", "build_way", "guidance_mode", "turn_end_reason")
+_STATUS_FIELDS = (
+    "task_brief",
+    "build_way",
+    "guidance_mode",
+    "user_mode",
+    "guidance_pref",
+    "decision_mode",
+    "skill_packs",
+    "turn_end_reason",
+)
 
 
 class ReplHost:
