@@ -7,11 +7,13 @@ build_ways 由 make_build_ways_node(model) 工厂构造——model=None 走静�
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any, Mapping, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from project_agent.compression import (
+    DEFAULT_BUDGET_TOKENS,
     CompactionPack,
     compress_rounds,
     find_error_conjectures,
@@ -666,6 +668,7 @@ def run_compression_check(
     shared_docs: Optional[SharedDocs] = None,
     notes_version: int = 0,
     manual: bool = False,
+    budget_tokens: int = DEFAULT_BUDGET_TOKENS,
 ) -> dict[str, Any] | None:
     """统一压缩检查（Q54：模型调用前）——返回 state 更新 dict 或 None。
 
@@ -675,17 +678,20 @@ def run_compression_check(
     文本)] + 保留轮消息）→ conjectures → shared_docs.notepad_add(轮号=end) +
     notes_version 自增。返回 dict 附 compacted_rounds（验收 6 溯源）。
 
+    actor_messages 走 add_messages 追加式 reducer——重排编码：
+    - 头部单包 AIMessage 复用消息列表首条消息的 id（replace 语义）
+    - 被压轮消息以 RemoveMessage(id=...) 剔除（无 id 的消息按位置补 id）
     model 参数是挂点协议的一部分（Q54 全部 LLM 调用点同一检查）；本函数
     本体不调用主模型——主模型调用仍属各节点身体。
     """
     if cheap_model is None:
         return None
-    if not manual and not should_compress(messages):
+    if not manual and not should_compress(messages, budget_tokens=budget_tokens):
         return None
 
     rounds = round_texts(messages)
     existing = _head_pack_from_messages(messages)
-    packs_plan = plan_packs(rounds, existing=existing)
+    packs_plan = plan_packs(rounds, existing=existing, budget_tokens=budget_tokens)
     if not packs_plan:
         return None
 
@@ -717,7 +723,6 @@ def run_compression_check(
 
     # 保留轮：未被压缩的轮（含最近 keep_last 及既有包之外的零散轮）原序保留
     compressed_nos = {no for start, end in compacted_rounds for no in range(start, end + 1)}
-    # 头部单包本身占消息位（首条 AIMessage）——重扫时轮次配对应跳过它
     retained: list[Any] = []
     round_no = 0
     for msg in messages or []:
@@ -732,9 +737,8 @@ def run_compression_check(
         else:
             retained.append(msg)
 
-    head_message = AIMessage(content=head_text)
     updates: dict[str, Any] = {
-        "actor_messages": [head_message, *retained],
+        "actor_messages": _rearrange_messages(messages, retained, head_text),
         "compacted_rounds": compacted_rounds,
     }
     if conjecture_notes:
@@ -743,3 +747,85 @@ def run_compression_check(
                 shared_docs.notepad_add(round_no_end, note)
         updates["notes_version"] = notes_version + len(conjecture_notes)
     return updates
+
+
+def _rearrange_messages(
+    messages: Any, retained: list[Any], head_text: str
+) -> list[Any]:
+    """重排编码：add_messages reducer 下的 [头部单包] + 保留轮。
+
+    - 首条消息（任意类型）被头部单包 AIMessage 以同 id 覆写（replace 语义）
+    - 其余消息中被压轮（不在 retained）发 RemoveMessage(id) 剔除
+    - 无 id 的消息先按位置补 uuid（RemoveMessage 按 id 定位）
+    """
+    from langchain_core.messages.modifier import RemoveMessage
+
+    msg_list = list(messages or [])
+    batch: list[Any] = []
+    retained_ids = {id(m) for m in retained}
+    first_id = None
+    for idx, msg in enumerate(msg_list):
+        msg_id = getattr(msg, "id", None)
+        if not msg_id:
+            msg_id = uuid.uuid4().hex
+            try:
+                msg.id = msg_id
+            except Exception:
+                # frozen 消息：换同内容带 id 副本
+                msg = msg.__class__(content=msg.content, id=msg_id)
+                msg_list[idx] = msg
+        if idx == 0:
+            first_id = msg_id
+            batch.append(AIMessage(content=head_text, id=first_id))
+        elif id(msg) not in retained_ids:
+            batch.append(RemoveMessage(id=msg_id))
+    if not msg_list:  # 无消息（防御）：头部单包直接追加
+        batch.append(AIMessage(content=head_text))
+    return batch
+
+
+def with_compression(
+    node_fn: Any,
+    *,
+    cheap_model: Any = None,
+    shared_docs: Optional[SharedDocs] = None,
+) -> Any:
+    """装饰器工厂（08 票挂接方式终裁）：不改既有节点签名，包装任意节点。
+
+    调前跑 run_compression_check（传 state 的 actor_messages / configurable
+    thread_id / shared_docs / notes_version），其更新合并进 state 后再调
+    原节点；cheap_model=None → 返回原节点裸函数（467 基线零回归）。
+
+    挂点：actor / verifier / assembler 三节点（planner 无 LLM 调用不挂；
+    demo 轮属后续票）。主模型参数经闭包由被包装节点自身持有（Q54 统一
+    检查只依赖消息历史与便宜模型）。
+    """
+
+    if cheap_model is None:
+        return node_fn
+
+    def wrapped(state: Mapping[str, Any], config: Any = None) -> dict[str, Any]:
+        compression_updates = run_compression_check(
+            messages=state.get("actor_messages") or [],
+            model=None,
+            cheap_model=cheap_model,
+            thread_id=_thread_id_from(config),
+            shared_docs=shared_docs,
+            notes_version=int(state.get("notes_version") or 0),
+        )
+        if compression_updates is not None:
+            merged = dict(state)
+            merged.update(compression_updates)
+            try:
+                node_updates = node_fn(merged, config)
+            except TypeError:
+                node_updates = node_fn(merged)
+            combined = dict(compression_updates)
+            combined.update(node_updates)
+            return combined
+        try:
+            return node_fn(state, config)
+        except TypeError:
+            return node_fn(state)
+
+    return wrapped

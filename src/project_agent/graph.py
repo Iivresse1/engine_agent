@@ -24,6 +24,7 @@ from project_agent.nodes import (
     make_build_ways_node,
     make_verifier_node,
     planner_node,
+    with_compression,
 )
 from project_agent.routing import (
     ACTOR,
@@ -55,19 +56,43 @@ def build_graph(
     checkpointer: Any = None,
     model: Any = None,
     workspace_root: Path | None = None,
+    cheap_model: Any = None,
 ) -> Any:
     """workspace_root 非 None → SharedDocs(workspace_root) 注入 actor 工厂
     （06：每轮生成物带【R#】落盘 + Notepad 指令）；None → 不注入（05 行为，
-    cli.py 零改动：骨架无模型本就不落盘；真模型票接线时传 cwd）。"""
+    cli.py 零改动：骨架无模型本就不落盘；真模型票接线时传 cwd）。
+
+    08：cheap_model 非 None → actor/verifier/assembler 三节点包
+    with_compression（Q54 模型调用前统一压缩检查；planner 无 LLM 调用
+    不挂，demo 轮属后续票）；None → 裸节点（467 基线零回归）。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLANNER, planner_node)
-    graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
-    graph.add_node(ACTOR, make_actor_node(model, shared_docs=shared_docs))
-    graph.add_node(VERIFIER, make_verifier_node(model))
+    graph.add_node(
+        CONTEXT_ASSEMBLER,
+        with_compression(context_assembler_node, cheap_model=cheap_model, shared_docs=shared_docs)
+        if cheap_model is not None
+        else context_assembler_node,
+    )
+    graph.add_node(
+        ACTOR,
+        with_compression(
+            make_actor_node(model, shared_docs=shared_docs),
+            cheap_model=cheap_model,
+            shared_docs=shared_docs,
+        )
+        if cheap_model is not None
+        else make_actor_node(model, shared_docs=shared_docs),
+    )
+    graph.add_node(
+        VERIFIER,
+        with_compression(make_verifier_node(model), cheap_model=cheap_model, shared_docs=shared_docs)
+        if cheap_model is not None
+        else make_verifier_node(model),
+    )
     graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)

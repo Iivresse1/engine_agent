@@ -7,10 +7,17 @@ conjectures→Notepad + notes_version 自增 + manual 强制。
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph.message import add_messages
 
 from project_agent.nodes import run_compression_check
 from project_agent.shared_docs import SharedDocs
 from tests.doubles.fake_model import ScriptedModel
+
+
+def _apply(messages: list, result: dict) -> list:
+    """把 run_compression_check 的更新 batch 喂 add_messages reducer——
+    得到重排后的真实消息历史（与图内 LangGraph 状态演化一致）。"""
+    return add_messages(list(messages), result["actor_messages"])
 
 
 def _history(n_rounds: int, chars_per_round: int) -> list:
@@ -53,7 +60,7 @@ def test_run_compression_check_triggers_on_long_history():
 
 
 def test_run_compression_check_head_pack_first_message():
-    """消息重排（Q56 头部单包）：messages[0] 为 AIMessage 头部单包文本。"""
+    """消息重排（Q56 头部单包）：reducer 应用后 messages[0] 为头部单包。"""
     cheap = ScriptedModel(["R1 决定 A。教训：显式 utf-8。"])
     messages = _history(8, 1000)
     result = run_compression_check(
@@ -63,7 +70,7 @@ def test_run_compression_check_head_pack_first_message():
         thread_id="t",
     )
     assert result is not None
-    new_messages = result["actor_messages"]
+    new_messages = _apply(messages, result)
     assert isinstance(new_messages[0], AIMessage)
     assert new_messages[0].content.startswith("【R1-R5-compact】\n")
     assert "R1 决定 A" in new_messages[0].content
@@ -77,7 +84,7 @@ def test_run_compression_check_keeps_last_three_rounds_verbatim():
         messages=messages, model=ScriptedModel(["x"]), cheap_model=cheap, thread_id="t"
     )
     assert result is not None
-    contents = [m.content for m in result["actor_messages"]]
+    contents = [m.content for m in _apply(messages, result)]
     # R6/R7/R8 = 最后三条 AI 原文（各 1000 字）
     for round_no in (6, 7, 8):
         assert ("字" * 1000) in contents
@@ -139,7 +146,7 @@ def test_run_compression_check_manual_forces_compression():
     )
     assert result is not None
     assert len(cheap.calls) == 1
-    new_messages = result["actor_messages"]
+    new_messages = _apply(messages, result)
     # 4 轮：保护 3 轮 → 1 候选 → 一包 R1-R1
     assert new_messages[0].content.startswith("【R1-R1-compact】\n手动压缩摘要。")
     # R2-R4 原文保留
@@ -186,13 +193,14 @@ def test_run_compression_check_two_packs_all_in_head():
     )
     assert result is not None
     assert result["compacted_rounds"] == [(1, 5), (6, 10)]
-    head = result["actor_messages"][0].content
+    new_messages = _apply(messages, result)
+    head = new_messages[0].content
     assert head.startswith("【R1-R5-compact】\n第一包摘要。")
     assert "【R6-R10-compact】\n第二包摘要。" in head
     # 两次便宜模型调用
     assert len(cheap.calls) == 2
     # 保留轮 R11-R13 原文
-    contents = [m.content for m in result["actor_messages"]]
+    contents = [m.content for m in new_messages]
     assert contents.count("字" * 700) == 3
 
 
@@ -216,7 +224,8 @@ def test_run_compression_check_existing_packs_not_recompressed():
     assert second["compacted_rounds"] == [(1, 5), (6, 8)]
     cheap_prompt = cheap2.calls[0]["messages"][0]["content"]
     assert "【R6】" in cheap_prompt  # 新包从已压轮之后的轮起
-    head_text = second["actor_messages"][0].content
+    new_messages = _apply(grown, second)
+    head_text = new_messages[0].content
     assert "【R1-R5-compact】" in head_text  # 旧包目录保留
     assert "首包摘要。" in head_text
     assert "【R6-R8-compact】\n新包摘要。" in head_text
