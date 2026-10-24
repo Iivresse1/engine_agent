@@ -447,6 +447,35 @@ def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
     return str(result.text)
 
 
+# 07 终裁 B：grilling prompt 差异行——与 way1 身体唯一差异。
+_GRILLING_SUFFIX = (
+    "\n请先提出一个澄清问题以推进构建（如已完成请输出：完成：{首个未清 todo 的 content}）。"
+)
+
+
+def _grilling_model_messages(state: Mapping[str, Any]) -> list[dict[str, str]]:
+    """grilling 身体的消息形态：system 末尾追加澄清行（隔离红线照旧）。"""
+    messages = _actor_model_messages(state)
+    if messages:
+        messages[0]["content"] = str(messages[0]["content"]) + _GRILLING_SUFFIX
+    return messages
+
+
+def _grilling_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+    """way2-4 身体（07 终裁 B）：与 way1 同构的最小 grilling 驱动。
+
+    差异仅在 prompt 末尾追加一行澄清指令；模型响应照旧走 todos 勾选/
+    "记录："桥/【R#】落盘/round_summary 全套（由 actor_node 公共工序承担）。
+    """
+    messages = _grilling_model_messages(state)
+    result = model.complete(
+        messages,
+        role=Role.ACTOR.value,
+        thread_id=_thread_id_from(config),
+    )
+    return str(result.text)
+
+
 def distill_round(messages: Any) -> str:
     """提炼函数（05 票终裁 8，Q53=b）：最后一条 AIMessage 的 content 前 120 字符。
 
@@ -460,10 +489,12 @@ def distill_round(messages: Any) -> str:
     return ""
 
 
-# 身体表按派生 build_way 选择（终裁 7）；way2-4 身体 07 票落位——
-# 05 中全部回落 way1 身体（骨架同构）。
+# 身体表按派生 build_way 选择（终裁 7）；07 终裁 B：way2-4 映射 grilling 身体。
 _ACTOR_BODIES: dict[str, Any] = {
     "way1": _way1_actor_body,
+    "way2": _grilling_body,
+    "way3": _grilling_body,
+    "way4": _grilling_body,
 }
 
 
