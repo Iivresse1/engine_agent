@@ -35,6 +35,7 @@ class Dashboard(TypedDict, total=False):
     round_count: int
     notes_version: int
     guidance_read_version: int
+    compacted_rounds: list[Any]  # 08：已压轮区间 [(start,end),...]（溯源断链检测）
     current_scope: str
     turn_end_reason: str
     turn_end_payload: dict[str, Any]

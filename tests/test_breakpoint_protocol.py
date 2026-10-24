@@ -121,6 +121,7 @@ def test_dashboard_fields_cover_spec_contract():
         "round_count",
         "notes_version",
         "guidance_read_version",
+        "compacted_rounds",  # 08：仪表盘 +compacted_rounds，spec 待 Lead 补录 v1.4
         "current_scope",
         "turn_end_reason",
         "turn_end_payload",
