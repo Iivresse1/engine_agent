@@ -6,13 +6,18 @@ from typing import Any, Mapping
 
 from langchain_core.messages import HumanMessage
 
-from project_agent.protocol import BREAKPOINT_PROTOCOL, Fusion, TurnEndReason
+from project_agent.protocol import (
+    BREAKPOINT_PROTOCOL,
+    Fusion,
+    Role,
+    TurnEndReason,
+)
 
 MAINLINE_KEY = "actor_messages"
 
-_PRIVATE_KEY_BY_ROLE: dict[str, str] = {
-    "actor": "actor_messages",
-    "demo": "demo_messages",
+_PRIVATE_KEY_BY_ROLE: dict[Role, str] = {
+    Role.ACTOR: "actor_messages",
+    Role.DEMO: "demo_messages",
 }
 
 
@@ -40,5 +45,10 @@ def fusion_update(
 
     key = MAINLINE_KEY
     if spec.fusion is Fusion.ASKER:
-        key = _PRIVATE_KEY_BY_ROLE.get(str(state.get("awaiting_input_from", "")), MAINLINE_KEY)
+        raw_role = state.get("awaiting_input_from", "")
+        try:
+            role = Role(raw_role)
+        except ValueError:
+            role = Role.ACTOR
+        key = _PRIVATE_KEY_BY_ROLE.get(role, MAINLINE_KEY)
     return {key: [HumanMessage(content=text)]}

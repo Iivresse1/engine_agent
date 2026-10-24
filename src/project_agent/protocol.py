@@ -11,6 +11,13 @@ from enum import Enum
 from typing import Any, Mapping
 
 
+class Role(str, Enum):
+    """角色标识（协议级）：01 欠账 c——awaiting_input_from / ModelClient.role 的受控词汇。"""
+
+    ACTOR = "actor"
+    DEMO = "demo"
+
+
 class TurnEndReason(str, Enum):
     ROUND = "round"
     QUESTION = "question"
