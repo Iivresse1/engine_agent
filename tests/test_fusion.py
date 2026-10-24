@@ -1,0 +1,70 @@
+"""统一输入协议：所有断点输入都是自由文本，按协议表融合进目标私有 key。"""
+
+from __future__ import annotations
+
+from langchain_core.messages import HumanMessage
+
+from project_agent.fusion import fusion_update
+from project_agent.protocol import TurnEndReason
+
+
+def _fused_text(update: dict) -> tuple[str, str]:
+    """返回 (融合目标 key, 文本)。"""
+    assert len(update) == 1, f"融合更新应恰好指向一个私有 key，实际 {list(update)}"
+    key, messages = next(iter(update.items()))
+    assert len(messages) == 1
+    msg = messages[0]
+    assert isinstance(msg, HumanMessage)
+    return key, str(msg.content)
+
+
+def test_round_fuses_into_mainline():
+    state = {"turn_end_reason": TurnEndReason.ROUND.value}
+    key, text = _fused_text(fusion_update(state, "继续"))
+    assert key == "actor_messages"
+    assert text == "继续"
+
+
+def test_question_fuses_into_asker_private_key():
+    state = {
+        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "awaiting_input_from": "demo",
+    }
+    key, _ = _fused_text(fusion_update(state, "选 B"))
+    assert key == "demo_messages"
+
+
+def test_question_with_unknown_role_falls_back_to_mainline():
+    state = {
+        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "awaiting_input_from": "someone-new",
+    }
+    key, _ = _fused_text(fusion_update(state, "答"))
+    assert key == "actor_messages"
+
+
+def test_question_without_asker_defaults_to_actor():
+    state = {"turn_end_reason": TurnEndReason.QUESTION.value}
+    key, _ = _fused_text(fusion_update(state, "答"))
+    assert key == "actor_messages"
+
+
+def test_resolution_and_exhausted_fuse_into_mainline():
+    for reason in (
+        TurnEndReason.CHOICE_BUILD_WAY,
+        TurnEndReason.CHOICE_PROPOSAL,
+        TurnEndReason.DOCS_DONE,
+        TurnEndReason.LOOP_EXHAUSTED,
+    ):
+        key, _ = _fused_text(fusion_update({"turn_end_reason": reason.value}, "自由输入"))
+        assert key == "actor_messages", reason
+
+
+def test_finished_is_terminal_no_fusion():
+    state = {"turn_end_reason": TurnEndReason.FINISHED.value}
+    assert fusion_update(state, "还想说话") == {}
+
+
+def test_unset_reason_defaults_to_mainline():
+    key, _ = _fused_text(fusion_update({}, "第一句话"))
+    assert key == "actor_messages"
