@@ -24,6 +24,9 @@ project-agent = "project_agent.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"project_agent.tools" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["replay: 会话回放测试（主接缝 REPL↔主图协议）"]

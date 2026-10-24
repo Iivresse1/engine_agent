@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "decision_order": ["deny", "ask", "allow"],
+  "boundary": {
+    "writable": ["${WORKSPACE}", "${TMP}"],
+    "protected_paths": [".git/**", ".env*", "**/.env*", ".ssh/**", ".aws/**", ".npmrc", ".bashrc", ".zshrc", ".pre-commit-config.yaml"],
+    "network": {
+      "allowed_domains": ["registry.npmjs.org", "registry.npmmirror.com", "github.com"],
+      "allow_localhost": true
+    }
+  },
+  "allow_read": [
+    "ls *", "cat *", "pwd", "echo *", "head *", "tail *", "grep *", "rg *",
+    "find *", "wc *", "which *", "diff *", "stat *", "du *", "cd *",
+    "git status", "git log *", "git diff *", "git show *", "git branch", "git remote -v",
+    "node --version", "npm --version", "pnpm --version", "python --version"
+  ],
+  "allow_write": [
+    "npm create *", "pnpm create *", "npm create vite@latest *",
+    "npx degit *", "npx create-* *",
+    "npm install", "npm install *", "pnpm install", "pnpm install *",
+    "mkdir *", "cp *", "mv *",
+    "git init", "git add *", "git commit -m *", "git commit *",
+    "npm run build", "npm run *", "pnpm run *", "npx vite build", "npx vite *",
+    "python -m http.server *",
+    "node *"
+  ],
+  "ask": [
+    "git push *",
+    "npm publish *",
+    "git clone *",
+    "npm install -g *", "pnpm add -g *"
+  ],
+  "deny": [
+    "rm -rf *", "rm -fr *", "rmdir *", "Remove-Item *",
+    "sudo *", "doas *", "su *", "runas *",
+    "ssh *", "scp *", "rsync *",
+    "git push --force*", "git push -f*", "git reset --hard*", "git clean -fd*",
+    "git checkout -- *", "git stash drop*", "git stash clear", "git commit --amend*",
+    "bash -c *", "sh -c *", "eval *", "xargs *",
+    "chmod 777 *", "chown *"
+  ]
+}
