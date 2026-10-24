@@ -6,7 +6,8 @@ Q39 钉板：账单纯本地持久化，不外发云端，LangSmith 明确不引
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from project_agent.model_client import ModelUsage
@@ -26,14 +27,22 @@ class RoleUsage:
 
 
 class TokenLedger:
-    """账单存储：按 thread × 角色聚合 usage_metadata。"""
+    """账单存储：按 thread × 角色聚合 usage_metadata，本地 JSON 持久化。"""
 
     def __init__(self, path: Path) -> None:
         self._path = path
         self._data: dict[str, dict[str, RoleUsage]] = {}
+        if path.exists():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            self._data = {
+                thread: {
+                    role: RoleUsage(**fields) for role, fields in roles.items()
+                }
+                for thread, roles in raw.items()
+            }
 
     def record(self, thread_id: str, role: str, usage: ModelUsage) -> None:
-        """一次模型调用的用量入账（输入/输出累加，调用次数 +1）。"""
+        """一次模型调用的用量入账（输入/输出累加，调用次数 +1）并落盘。"""
         roles = self._data.setdefault(thread_id, {})
         current = roles.get(role, RoleUsage())
         roles[role] = RoleUsage(
@@ -41,7 +50,19 @@ class TokenLedger:
             output_tokens=current.output_tokens + usage.output_tokens,
             calls=current.calls + 1,
         )
+        self._flush()
 
     def usage_for(self, thread_id: str) -> dict[str, RoleUsage]:
         """按角色分账：返回该 thread 下各角色的用量小计。"""
         return dict(self._data.get(thread_id, {}))
+
+    def _flush(self) -> None:
+        """账单只落本地盘（Q39 红线：无任何网络上报路径）。"""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            thread: {role: asdict(u) for role, u in roles.items()}
+            for thread, roles in self._data.items()
+        }
+        self._path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )

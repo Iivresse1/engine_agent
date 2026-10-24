@@ -32,3 +32,19 @@ def test_record_aggregates_per_role_and_thread(tmp_path: Path):
     assert ledger.usage_for("t2")["actor"].total_tokens == 10
     # 未知 thread 零账
     assert ledger.usage_for("never") == {}
+
+
+def test_ledger_persists_across_restart(tmp_path: Path):
+    """会话重启后可查：新实例从盘上载入既有账目。"""
+    path = tmp_path / "ledger.json"
+    TokenLedger(path).record("t1", "actor", ModelUsage(input_tokens=100, output_tokens=50))
+    TokenLedger(path).record("t1", "verifier", ModelUsage(input_tokens=30, output_tokens=20))
+
+    revived = TokenLedger(path)
+    assert revived.usage_for("t1")["actor"].total_tokens == 150
+    assert revived.usage_for("t1")["verifier"].calls == 1
+    # 重启后继续记账，账目延续
+    revived.record("t1", "actor", ModelUsage(input_tokens=10, output_tokens=5))
+    assert revived.usage_for("t1")["actor"].input_tokens == 110
+    again = TokenLedger(path)
+    assert again.usage_for("t1")["actor"].total_tokens == 165
