@@ -16,6 +16,10 @@ class Dashboard(TypedDict, total=False):
     task_brief: str
     build_way: str
     guidance_mode: str
+    user_mode: str
+    guidance_pref: str
+    decision_mode: str
+    skill_packs: list[str]
     proposal_set: list[Any]
     selected_proposal: int
     todos: list[Any]
@@ -41,3 +45,5 @@ class GraphState(Dashboard, total=False):
     actor_messages: Annotated[list[Any], add_messages]
     demo_messages: Annotated[list[Any], add_messages]
     assembled_context: dict[str, Any]
+    # 决议通道：无 reducer 整覆写——融合端 [*existing, text] 追加、决议节点返回 [] 清空
+    resolution_inputs: list[str]

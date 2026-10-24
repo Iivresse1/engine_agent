@@ -102,6 +102,10 @@ def test_dashboard_fields_cover_spec_contract():
         "task_brief",
         "build_way",
         "guidance_mode",
+        "user_mode",
+        "guidance_pref",
+        "decision_mode",
+        "skill_packs",
         "proposal_set",
         "selected_proposal",
         "todos",
@@ -126,3 +130,4 @@ def test_dashboard_fields_cover_spec_contract():
     graph_keys = set(GraphState.__optional_keys__) | set(GraphState.__required_keys__)
     assert dash <= graph_keys
     assert {"actor_messages", "demo_messages", "assembled_context"} <= graph_keys
+    assert "resolution_inputs" in graph_keys
