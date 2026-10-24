@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any, Mapping, Sequence
 
-from project_agent.model_client import ModelUsage
+from project_agent.model_client import ModelResult, ModelUsage
 
 
 @dataclass(frozen=True)
@@ -66,3 +67,23 @@ class TokenLedger:
         self._path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+
+class MeteredModel:
+    """ModelClient 包装聚合层：用量自动入账，协议形状保持不变。
+
+    满足 ModelClient 协议（结构化子类型），可包装任何 ModelClient
+    （测试替身 ScriptedModel 或后续票的真模型客户端）。
+    """
+
+    def __init__(self, inner: Any, ledger: TokenLedger) -> None:
+        self._inner = inner
+        self._ledger = ledger
+
+    def complete(
+        self, messages: Sequence[Mapping[str, Any]], *, role: str, thread_id: str
+    ) -> ModelResult:
+        result = self._inner.complete(messages, role=role, thread_id=thread_id)
+        if result.usage is not None:
+            self._ledger.record(thread_id, role, result.usage)
+        return result
