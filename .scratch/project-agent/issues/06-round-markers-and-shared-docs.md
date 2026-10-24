@@ -4,9 +4,13 @@
 
 **Blocked by:** 03, 05
 
-**Status:** ready-for-agent
+**Status:** done（2026-10-25 实现，合并 2620011）
 
-- [ ] 每轮生成物带正确【R#】；按轮次切片检索只返回该轮切片
-- [ ] NotepadAdd 成功后 notes_version 单调自增；NOTES.md 落盘且条目带【R#】
-- [ ] 版本差检查：入口仅差>0 时注入；stale-read 杜绝测试绿（含"写 NOTE→摘要→AskAgent 读→对齐"序）
-- [ ] 隔离红线测试：角色 A 历史绝不出现于角色 B 输入，跨角色只经共享文档区
+- [x] 每轮生成物带正确【R#】；按轮次切片检索只返回该轮切片
+- [x] NotepadAdd 成功后 notes_version 单调自增；NOTES.md 落盘且条目带【R#】
+- [x] 版本差检查：入口仅差>0 时注入；stale-read 杜绝测试绿（含"写 NOTE→摘要→AskAgent 读→对齐"序）
+- [x] 隔离红线测试：角色 A 历史绝不出现于角色 B 输入，跨角色只经共享文档区
+
+## Comments
+
+**2026-10-25 实现 完成（implementer 子代理，5+1 提交，合并 2620011，467 绿，+46）**：src/project_agent/shared_docs.py（SharedDocs：BUILD_LOG.md【R#】轮次生成物多行条目/NOTES.md 单行条目/按轮切片；guidance_gate/align_guidance_read 版本门纯函数）；actor 扩展（round_count 仪表盘新字段/【R#】落盘/"记录："指令桥——07 票真身体接管前的最小通路/notes_version 按写入条数自增）；graph.build_graph(+workspace_root)。**隔离红线含变异验证**（临时泄漏 demo 历史入 BUILD_LOG→测试红→还原绿）。spec 已补录 v1.3（+round_count）。**边界钉定**："记录："单层 split（note 内再含分隔符拆多条）；read_round 同轮多条取首。cli/tools/.scratch 零改动核验。

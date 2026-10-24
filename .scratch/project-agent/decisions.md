@@ -192,6 +192,7 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 
 **Q61（05 票主环拓扑终裁，2026-10-25 凌晨）**：一轮=一次 invoke 必到 END；**主环跨 invoke 续跑（轮节律制）**——每工作轮 = context_assembler→actor→verifier→END（round 断点），用户下条输入融合进 actor_messages 驱动下一轮；清而未过轮 = verifier→PLANNER（同轮重新规划）→planner→END；计数=5 轮 = verifier→LOOP_EXHAUSTED→END。图内唯一回边 = verifier→planner。**裁定依据**：①"每轮 turn_end_reason/assembled_context 每轮覆写"只有跨 invoke 可断言；②用户故事 17（每轮交还控制权）+ way1"正常 agent 对话节律"同构；③CLI 无真模型时每轮必终止（图内无界 assembler↺ 环会挂死骨架 CLI）；④spec 入口路由真值表主环行全部变活代码（图内环方案下是死代码）。派工纪律第三次升级：**预裁必须零决策点**——02/03/05 首派各烧掉一整个子代理上下文（02 在问卷跨轮机制、03 在 8 类正则语义、05 在本拓扑歧义）；终裁版派工单把裁定连同图拓扑伪代码直灌，子代理纯执行。
 - 05 票完成（合并 f689b88，421 绿，+91）：**耗尽态不对称设计钉板**——图内边 _after_verifier 计数最前（耗尽即时触发）；入口边 todos 先序（耗尽恢复输入 → planner 见 count>=5 清零开新循环）。Lead 曾拟"入口也计数先序"，分析后撤回：会卡死恢复路径（耗尽态=清+false+count5 永远再判 LOOP_EXHAUSTED），且 spec 真值表行序即 todos 先序——实现者的异议裁定正确。Role.+VERIFIER（ModelClient.role 受控词汇扩展，fusion 映射未动）；PLACEHOLDER 全删；model=None 时 actor→END 直连（骨架防挂死，真模型票闭合 verifier 环）。
+- 06 票完成（合并 2620011，467 绿，+46）：shared_docs.py（SharedDocs+版本门纯函数）；actor 落盘扩展（round_count/【R#】/"记录："指令桥）；graph +workspace_root；spec 升 v1.3（+round_count）。**前沿解锁：07/08/09 三票并行**。边界钉定："记录："单层 split；read_round 同轮取首。
 
 ## 挂起 / 待办
 

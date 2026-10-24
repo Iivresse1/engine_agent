@@ -1,7 +1,7 @@
 # Spec: 项目构建 Agent（Project Agent）v1.2
 
 Status: ready-for-agent
-发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）
+发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）；v1.3 增补（2026-10-25）：仪表盘字段表补录 round_count（06 票【R#】编号源）
 来源: 32 轮 grilling 设计会话（决策台账 .scratch/project-agent/decisions.md，47+ 决策）
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0004
 
@@ -145,6 +145,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | demo_phase | undecided/building/skipped | docs_done 决议轮 | demo 阶段路由 |
 | round_summary | str | actor 后置工序 | 最新轮摘要，指引注入材料 |
 | notes_version | int 单调递增 | NotepadAdd 成功后自增 | Notepad 新鲜度 |
+| round_count | int 单调递增 | actor 每产出一轮 +1 | 【R#】轮次编号源（06 票补录 v1.3） |
 | guidance_read_version | int | AskAgent 消费后对齐 | 已读水位 |
 | current_scope | scope key | actor 声明、assembler 落定 | 规则文件 + 工具子集选择 |
 | turn_end_reason | 枚举（见断点协议） | 产生断点的节点 | 断点协议主键 |
