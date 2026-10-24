@@ -38,3 +38,16 @@ def test_metered_model_records_fake_usage_per_role(tmp_path: Path):
     assert t1["verifier"].calls == 1
     # MeteredModel 自身结构化满足协议（测试替身同构，01 票挂靠点不变）
     assert isinstance(model, ModelClient)
+
+
+def test_metered_model_skips_result_without_usage(tmp_path: Path):
+    """usage=None 的结果不记账（无用量信息宁可漏账不可谎账）。"""
+    scripted = ScriptedModel([ModelResult(text="无用量回答")])  # usage 默认 None
+    ledger = TokenLedger(tmp_path / "ledger.json")
+    model = MeteredModel(scripted, ledger)
+
+    result = model.complete([], role="actor", thread_id="t1")
+
+    assert result.text == "无用量回答"
+    assert result.usage is None
+    assert ledger.usage_for("t1") == {}
