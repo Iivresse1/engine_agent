@@ -96,6 +96,16 @@ class SharedDocs:
         self, notes_version: int, guidance_read_version: int
     ) -> list[tuple[int, str]]:
         """版本差>0→返回 notepad_entries()（全量，供注入）；差<=0→[]。"""
-        if notes_version - guidance_read_version > 0:
+        if guidance_gate(notes_version, guidance_read_version):
             return self.notepad_entries()
         return []
+
+
+def guidance_gate(notes_version: int, guidance_read_version: int) -> bool:
+    """版本门（纯函数，供 10 票 AskAgent 接线）：差>0→True（注入）。"""
+    return notes_version - guidance_read_version > 0
+
+
+def align_guidance_read(notes_version: int) -> int:
+    """消费后对齐：返回新 guidance_read_version（=notes_version）。"""
+    return notes_version

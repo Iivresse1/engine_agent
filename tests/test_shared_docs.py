@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from project_agent.shared_docs import SharedDocs
+from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
 
 
 # —— BUILD_LOG 轮次生成物：不存在 → [] ——
@@ -147,3 +147,49 @@ def test_guidance_slice_injects_only_when_version_gap_positive(tmp_path: Path):
     assert docs.guidance_slice(notes_version=1, guidance_read_version=0) == [(1, "甲")]
     assert docs.guidance_slice(notes_version=1, guidance_read_version=1) == []
     assert docs.guidance_slice(notes_version=0, guidance_read_version=1) == []
+
+
+# —— 版本门纯函数（模块级，供 10 票 AskAgent 接线）——
+
+@pytest.mark.parametrize(
+    ("notes_version", "guidance_read_version", "expected"),
+    [
+        (0, 0, False),  # 初始：无新内容不注入
+        (1, 0, True),  # 差>0：注入
+        (2, 1, True),
+        (1, 1, False),  # 已对齐：不重复注入
+        (5, 5, False),
+        (0, 1, False),  # 读超写（防御）：不注入
+    ],
+)
+def test_guidance_gate_table_driven(
+    notes_version: int, guidance_read_version: int, expected: bool
+):
+    assert guidance_gate(notes_version, guidance_read_version) is expected
+
+
+@pytest.mark.parametrize("notes_version", [0, 1, 5])
+def test_align_guidance_read_returns_notes_version(notes_version: int):
+    assert align_guidance_read(notes_version) == notes_version
+
+
+def test_write_inject_align_no_reinject_reinject_sequence(tmp_path: Path):
+    """验收 3 完整序（写 NOTE→摘要→AskAgent 读→对齐）：
+    v=0,g=0→不注入→写一条(v=1)→注入→对齐 g=1→不重复注入→
+    再写一条(v=2)→新内容再注入。
+    """
+    docs = SharedDocs(tmp_path)
+    v, g = 0, 0
+    assert guidance_gate(v, g) is False
+    docs.notepad_add(1, "首个关键事实")  # NotepadAdd 成功 → notes_version 自增
+    v = 1
+    assert guidance_gate(v, g) is True  # 差>0：AskAgent 注入
+    assert docs.guidance_slice(v, g) == [(1, "首个关键事实")]
+    g = align_guidance_read(v)  # 消费后对齐
+    assert g == 1
+    assert guidance_gate(v, g) is False  # 不再重复注入
+    assert docs.guidance_slice(v, g) == []
+    docs.notepad_add(2, "第二个关键事实")  # 再写一条
+    v = 2
+    assert guidance_gate(v, g) is True  # 新内容再注入
+    assert docs.guidance_slice(v, g) == [(1, "首个关键事实"), (2, "第二个关键事实")]
