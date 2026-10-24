@@ -43,14 +43,18 @@ def merge_decisions(
     """
 
     order = {DecisionAction.ALLOW: 0, DecisionAction.ASK: 1, DecisionAction.DENY: 2}
-    heaviest = default
-    for segment_text, decision in decisions:
+    if not decisions:
+        return default
+    heaviest = decisions[0][1]
+    heaviest_segment = decisions[0][0]
+    for segment_text, decision in decisions[1:]:
         if order[decision.action] > order[heaviest.action]:
-            heaviest = Decision(
-                action=decision.action,
-                rule_id=decision.rule_id,
-                reason=decision.reason,
-                command=decision.command,
-                segment=segment_text,
-            )
-    return heaviest
+            heaviest = decision
+            heaviest_segment = segment_text
+    return Decision(
+        action=heaviest.action,
+        rule_id=heaviest.rule_id,
+        reason=heaviest.reason,
+        command=heaviest.command,
+        segment=heaviest_segment,
+    )

@@ -48,3 +48,12 @@ def test_merge_picks_heaviest_action_with_first_heaviest_segment():
 def test_merge_empty_returns_default():
     default = Decision(DecisionAction.ASK, "whitelist.miss", "未命中", segment="cmd")
     assert merge_decisions([], default) is default
+
+
+def test_merge_all_allow_beats_ask_default():
+    # 空段时的默认 ask 不得压过非空段的全 allow 聚合
+    allow = Decision(DecisionAction.ALLOW, "whitelist.allow_read", "ok")
+    default = Decision(DecisionAction.ASK, "whitelist.miss", "未命中", segment="cmd")
+    merged = merge_decisions([("npm install", allow), ("npm run build", allow)], default)
+    assert merged.action is DecisionAction.ALLOW
+    assert merged.segment == "npm install"
