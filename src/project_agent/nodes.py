@@ -11,6 +11,16 @@ from typing import Any, Mapping, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from project_agent.compression import (
+    CompactionPack,
+    compress_rounds,
+    find_error_conjectures,
+    format_head_pack,
+    parse_head_pack,
+    plan_packs,
+    round_texts,
+    should_compress,
+)
 from project_agent.onboarding import (
     QUESTIONNAIRE,
     interpret_answer,
@@ -610,3 +620,126 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
         "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
         "turn_end_payload": payload,
     }
+
+
+# —— 08 票：统一压缩检查（Q54 挂点核心，纯函数无 state 依赖）——
+
+
+def _head_pack_from_messages(messages: Any) -> list[tuple[int, int]]:
+    """从消息头部单包文本解析既有压缩区间（无头部单包 → ()）。"""
+    for msg in messages or []:
+        content = getattr(msg, "content", None)
+        if isinstance(content, str) and content.startswith("【R"):
+            ranges = parse_head_pack(content)
+            if ranges:
+                return ranges
+    return []
+
+
+def _existing_packs_texts(messages: Any) -> list[tuple[int, int, str]]:
+    """解析消息里既有的头部单包（区间 + 该段摘要文本），保序返回。"""
+    existing: list[tuple[int, int, str]] = []
+    for msg in messages or []:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, str):
+            continue
+        ranges = parse_head_pack(content)
+        if not ranges:
+            continue
+        # 按包目录切分：每段【R#-R#-compact】行之后的文本到下一目录行
+        segments = re.split(r"【R(\d+)-R(\d+)-compact】", content)
+        # segments = [前导, s1, e1, text1, s2, e2, text2, ...]
+        i = 1
+        while i + 2 < len(segments) + 1 and i + 1 < len(segments):
+            start, end, text = int(segments[i]), int(segments[i + 1]), segments[i + 2]
+            existing.append((start, end, text.strip()))
+            i += 3
+    return existing
+
+
+def run_compression_check(
+    *,
+    messages: Any,
+    model: Any,
+    cheap_model: Any,
+    thread_id: str,
+    shared_docs: Optional[SharedDocs] = None,
+    notes_version: int = 0,
+    manual: bool = False,
+) -> dict[str, Any] | None:
+    """统一压缩检查（Q54：模型调用前）——返回 state 更新 dict 或 None。
+
+    流程：should_compress(manual 可绕过) → round_texts → plan_packs（existing
+    解析自消息头部单包）→ compress_rounds 每包（便宜模型，role=compressor）
+    → 消息重排（Q56 头部单包注入：新 actor_messages = [AIMessage(全部包合并
+    文本)] + 保留轮消息）→ conjectures → shared_docs.notepad_add(轮号=end) +
+    notes_version 自增。返回 dict 附 compacted_rounds（验收 6 溯源）。
+
+    model 参数是挂点协议的一部分（Q54 全部 LLM 调用点同一检查）；本函数
+    本体不调用主模型——主模型调用仍属各节点身体。
+    """
+    if cheap_model is None:
+        return None
+    if not manual and not should_compress(messages):
+        return None
+
+    rounds = round_texts(messages)
+    existing = _head_pack_from_messages(messages)
+    packs_plan = plan_packs(rounds, existing=existing)
+    if not packs_plan:
+        return None
+
+    rounds_by_no = dict(rounds)
+    new_packs: list[CompactionPack] = []
+    conjecture_notes: list[tuple[int, str]] = []
+    compacted_rounds: list[tuple[int, int]] = list(existing)
+    for start, end in packs_plan:
+        pack_rounds = [(no, rounds_by_no[no]) for no in range(start, end + 1)]
+        summary = compress_rounds(cheap_model, pack_rounds, thread_id)
+        new_packs.append(
+            CompactionPack(
+                covered_rounds=tuple(range(start, end + 1)), summary=summary
+            )
+        )
+        compacted_rounds.append((start, end))
+        for note in find_error_conjectures(summary):
+            conjecture_notes.append((end, note))
+
+    # 既有包（摘要文本保留）+ 新包合并为头部单包
+    existing_texts = _existing_packs_texts(messages)
+    all_packs: list[CompactionPack] = [
+        CompactionPack(
+            covered_rounds=tuple(range(start, end + 1)), summary=text
+        )
+        for start, end, text in existing_texts
+    ] + new_packs
+    head_text = format_head_pack(all_packs)
+
+    # 保留轮：未被压缩的轮（含最近 keep_last 及既有包之外的零散轮）原序保留
+    compressed_nos = {no for start, end in compacted_rounds for no in range(start, end + 1)}
+    # 头部单包本身占消息位（首条 AIMessage）——重扫时轮次配对应跳过它
+    retained: list[Any] = []
+    round_no = 0
+    for msg in messages or []:
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str) and parse_head_pack(content):
+                continue  # 旧头部单包被新头部单包取代
+            round_no += 1
+            if round_no in compressed_nos:
+                continue
+            retained.append(msg)
+        else:
+            retained.append(msg)
+
+    head_message = AIMessage(content=head_text)
+    updates: dict[str, Any] = {
+        "actor_messages": [head_message, *retained],
+        "compacted_rounds": compacted_rounds,
+    }
+    if conjecture_notes:
+        if shared_docs is not None:
+            for round_no_end, note in conjecture_notes:
+                shared_docs.notepad_add(round_no_end, note)
+        updates["notes_version"] = notes_version + len(conjecture_notes)
+    return updates

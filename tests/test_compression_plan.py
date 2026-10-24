@@ -164,9 +164,18 @@ def test_plan_packs_existing_overlaps_excluded():
 
 
 def test_plan_packs_existing_keeps_head_pack_semantics():
-    """existing 覆盖头部（R1-R10 已压）：候选 R11..R17，两包后仍超水位
-    ——上限 2 包（(11,15)+(16,17)）。"""
+    """existing 覆盖头部（R1-R10 已压）：候选 R11..R17——一包 R11-R15 后
+    剩余（未压轮文本）3000 <= 水位 4800 → 停（单包）。"""
     rounds = _rounds(20, chars_per_round=600)
+    packs = plan_packs(rounds, existing=[(1, 10)])
+    assert packs == [(11, 15)]
+
+
+def test_plan_packs_existing_two_packs_when_waterline_unreachable():
+    """existing 已压 + 未压轮仍超水位：两包上限（水位在未压轮内计算）。"""
+    # 20 轮各 1000，existing (1,10)：未压轮 R11-R20 各 1000 = 10000 > 4800。
+    # 候选 R11-R17：一包 R11-R15（5000）→ 剩 5000 > 4800 → 第二包 R16-R17。
+    rounds = _rounds(20, chars_per_round=1000)
     packs = plan_packs(rounds, existing=[(1, 10)])
     assert packs == [(11, 15), (16, 17)]
 

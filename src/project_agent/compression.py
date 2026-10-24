@@ -99,16 +99,19 @@ def plan_packs(
     if not rounds:
         return []
     ordered = sorted(rounds, key=lambda item: item[0])
-    # 3 轮保护：最近 keep_last 轮永不压缩
-    protected = {no for no, _ in ordered[-keep_last:]} if keep_last > 0 else set()
     # 与已压缩区间重叠的轮排除（已压轮驻留头部单包，不再入包）
     compressed = {no for start, end in existing for no in range(start, end + 1)}
-    candidates = [item for item in ordered if item[0] not in protected and item[0] not in compressed]
+    rounds_effective = [item for item in ordered if item[0] not in compressed]
+    # 3 轮保护：最近 keep_last 轮（在未压缩轮里数）永不压缩
+    protected = (
+        {no for no, _ in rounds_effective[-keep_last:]} if keep_last > 0 else set()
+    )
+    candidates = [item for item in rounds_effective if item[0] not in protected]
     if not candidates:
         return []
 
     # 水位：压后剩余估算（全部轮文本 - 已压包文本）<= 0.60*budget
-    total_estimate = sum(len(text) for _, text in ordered)
+    total_estimate = sum(len(text) for _, text in rounds_effective)
     waterline = WATERLINE_RATIO * budget_tokens
 
     packs: list[tuple[int, int]] = []
