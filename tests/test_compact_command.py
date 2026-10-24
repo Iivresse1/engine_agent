@@ -40,7 +40,11 @@ def _cfg(thread: str) -> dict:
 
 
 class _StubApp:
-    """REPL 测试桩：invoke 返回断点协议最小 round 形状。"""
+    """REPL 测试桩：invoke 返回断点协议最小 round 形状。
+
+    模拟真实图行为：update 键（含压缩批的 compacted_rounds）并入结果 state——
+    真实 LangGraph 会持久化节点 update 的全部 state 键。
+    """
 
     def __init__(self) -> None:
         self.invocations = 0
@@ -49,10 +53,14 @@ class _StubApp:
     def invoke(self, update, config):
         self.invocations += 1
         self.last_update = update
-        return {
+        state = {
             "turn_end_reason": "round",
             "turn_end_payload": {"round_output": "ok", "todo_board": []},
         }
+        for key, value in update.items():
+            if key != "actor_messages":  # 消息批经 reducer 归约——桩不模拟
+                state[key] = value
+        return state
 
 
 def _seeded_history() -> list:
@@ -122,10 +130,19 @@ def test_repl_compact_updates_last_state_messages(workspace):
     host = ReplHost(app, io, "t-state", cheap_model=cheap, shared_docs=docs)
     host._last_state = {"actor_messages": _seeded_history(), "notes_version": 0}
     host.run()
-    # /compact 后 "继续" 走 _run_turn → invoke 的 update 携带重排历史
+    # /compact 后 "继续" 走 _run_turn → fusion_update 产出新 HumanMessage，
+    # 与压缩批（RemoveMessage+头部单包）一起进 update["actor_messages"]：
+    # 批内含头部单包 AIMessage（id 复用首条）——在批序列里验证。
     msgs = app.last_update["actor_messages"]
-    assert isinstance(msgs[0], AIMessage)
-    assert msgs[0].content.startswith("【R1-R5-compact】")
+    head_candidates = [
+        m for m in msgs
+        if isinstance(m, AIMessage)
+        and isinstance(m.content, str)
+        and m.content.startswith("【R1-R5-compact】")
+    ]
+    assert head_candidates, "invoke update 应携带压缩头部单包"
+    # REPL 持有状态本身也携带压缩键
+    assert host._last_state.get("compacted_rounds") == [(1, 5)]
 
 
 # —— 验收 6：溯源断链检测 ——
@@ -147,14 +164,16 @@ def test_read_round_retrieves_compacted_rounds_after_graph_compression(tmp_path:
     result = run_compression_check(
         messages=messages,
         model=None,
-        cheap_model=ScriptedModel(["摘要。"]),
+        cheap_model=ScriptedModel(["摘要。", "摘要二。"]),
         thread_id="t-prov",
         shared_docs=docs,
     )
     assert result is not None
     compacted = result["compacted_rounds"]
-    # 压缩轮区间（12 轮 x 1000：一包 R1-R5 → 水位 7000 > 4800 → 第二包 R6-R10）
-    assert list(map(tuple, compacted)) == [(1, 5), (6, 10)]
+    # 12 轮 x 1000：候选 R1-R9（保护 R10-R12），一包 R1-R5 后剩 7000 > 4800
+    # → 第二包 R6-R9 → 停（两包或水位达）。8 轮 AI 起头是 Human("问")，
+    # 12 轮历史里首条消息为 Human——头部单包覆写该位。
+    assert list(map(tuple, compacted)) == [(1, 5), (6, 9)]
 
     # 断链检测：磁盘条目数（12）>= 消息历史轮数（12）- 已压轮数（10）
     disk_rounds = docs.read_rounds()
@@ -163,7 +182,7 @@ def test_read_round_retrieves_compacted_rounds_after_graph_compression(tmp_path:
     assert len(disk_rounds) >= 12 - n_compacted
 
     # 被压轮原文仍可经【R#】检索（磁盘事实来源不随消息压缩丢失）
-    for round_no in (1, 5, 6, 10):
+    for round_no in (1, 5, 6, 9):
         assert docs.read_round(round_no) == f"【R{round_no}】第 {round_no} 轮内容原文"
 
 
@@ -193,9 +212,8 @@ def test_graph_level_provenance_survives_compression(tmp_path: Path):
     }
     r1 = app.invoke(seed, _cfg("g-prov"))
     compacted = list(map(tuple, r1.get("compacted_rounds") or []))
-    assert compacted == [(1, 5), (6, 7)]  # 10x900=9000：一包后 4500<=4800? 不——
-    # 9000-4500=4500 <= 4800 → 单包？由实现钉板：水位按未压轮计 9000>4800，
-    # pack1 R1-R5 后 remaining 4500 <= 4800 → 停 → [(1,5)]。校正断言：
+    # 10x900=9000 > 6400 触发：候选 R1-R7（保护 R8-R10），一包 R1-R5 后
+    # remaining 4500 <= 水位 4800 → 停（单包）。
     assert compacted == [(1, 5)]
     # 磁盘 10 轮全程可检索（压缩不动磁盘）
     for round_no in range(1, 11):
