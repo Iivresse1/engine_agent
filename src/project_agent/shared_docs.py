@@ -26,6 +26,23 @@ class SharedDocs:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
+    # —— 交付物落盘（07 票）——
+
+    def write_deliverable(self, path_rel: str, content: str, *, way: str) -> bool:
+        """写交付物：root/path_rel UTF-8 覆写，父目录 mkdir。
+
+        白名单校验：path_rel ∈ DELIVERABLE_SETS[way]（未知 way → 空 → 全拒）；
+        不在白名单 → 零写入零异常，返回 False（调用方记 round_end 提示）。
+        """
+        from project_agent.deliverables import deliverables_for
+
+        if path_rel not in deliverables_for(way):
+            return False
+        path = self.root / path_rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return True
+
     # —— 轮次生成物（BUILD_LOG.md）——
 
     def append_round_entry(

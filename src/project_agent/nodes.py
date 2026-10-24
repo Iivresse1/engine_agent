@@ -436,6 +436,45 @@ def _parse_notes(text: str) -> list[str]:
     return [segment.strip() for segment in text.split(_NOTE_MARKER)[1:] if segment.strip()]
 
 
+# 07 票："写入：{文件名}\n{多行内容}" 指令分隔符（行首模式）
+_WRITE_MARKER = "\n写入："
+
+
+def _parse_writes(text: str) -> list[tuple[str, str]]:
+    """「写入：{文件名}\\n{内容}」解析：按 "\\n写入：" 分段（前导补 \\n——
+    响应以"写入："开头即首行行首），每段首行=文件名，其后为内容到段尾
+    （strip 尾空白）；无→零条。
+
+    行首模式：行中粘连（"先写入：…"）不误中；文件名为空或段内无换行的段不产条目。
+    """
+    results: list[tuple[str, str]] = []
+    for segment in ("\n" + text).split(_WRITE_MARKER)[1:]:
+        first_break = segment.find("\n")
+        if first_break < 0:
+            continue  # 段内无换行：无内容体，不产条目
+        filename = segment[:first_break].strip()
+        content = segment[first_break + 1 :].rstrip()
+        if not filename:
+            continue
+        results.append((filename, content))
+    return results
+
+
+def _apply_writes(
+    shared_docs: Any, way: str, text: str
+) -> list[str]:
+    """grilling 身体交付物落盘：解析"写入："指令 → 白名单落盘。
+
+    返回被拒文件名列表（不在 DELIVERABLE_SETS[way] 白名单→跳过），
+    调用方记 round_end 提示。way1 不调用本函数（不解析写入）。
+    """
+    rejected: list[str] = []
+    for filename, content in _parse_writes(text):
+        if not shared_docs.write_deliverable(filename, content, way=way):
+            rejected.append(filename)
+    return rejected
+
+
 def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
     """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
     messages = _actor_model_messages(state)
@@ -551,8 +590,17 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
             for note in notes:
                 shared_docs.notepad_add(round_count, note)
             updates["notes_version"] = int(state.get("notes_version") or 0) + len(notes)
+            # 07：交付物落盘（way2-4 解析"写入："；way1 不解析）
+            rejected_writes: list[str] = []
+            if cfg["build_way"] != "way1":
+                rejected_writes = _apply_writes(shared_docs, cfg["build_way"], text)
+        else:
+            rejected_writes = []
         # ④ round_end 板用勾选后 todos（05 既有）
-        updates.update(_round_end(text, {**state, "todos": new_todos}))
+        round_text = text
+        if rejected_writes:
+            round_text = f"{text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
+        updates.update(_round_end(round_text, {**state, "todos": new_todos}))
         return updates
 
     return actor_node
