@@ -32,6 +32,7 @@ class Dashboard(TypedDict, total=False):
     final_check_loop_count: int
     demo_phase: str
     round_summary: str
+    round_count: int
     notes_version: int
     guidance_read_version: int
     current_scope: str
