@@ -349,3 +349,31 @@ def planner_node(state: Mapping[str, Any]) -> dict[str, Any]:
         "main_loop_count": main_loop_count,
         **_round_end(f"已列出 {len(todos)} 项计划", {**state, "todos": todos}),
     }
+
+
+def _pending_count(todos: Any) -> int:
+    return sum(
+        1
+        for item in todos or []
+        if isinstance(item, dict) and item.get("status") != "completed"
+    )
+
+
+def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
+
+    读 current_scope / todos / guidance_mode / build_way；不写任何消息。
+    """
+    todos = state.get("todos") or []
+    updates: dict[str, Any] = {
+        "assembled_context": {
+            "system": (
+                f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+                f"指引 {state.get('guidance_mode') or ''}，"
+                f"待办 {_pending_count(todos)} 项"
+            ),
+            "todo_board": _todo_board(state),
+            "scope": str(state.get("current_scope") or "main"),
+        }
+    }
+    return updates
