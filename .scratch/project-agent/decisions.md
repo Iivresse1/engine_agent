@@ -191,6 +191,7 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 02 票完成（implementer 子代理，合并 2b59e1b，330 绿）：01 三笔欠账全清（Role 枚举/resolution_inputs 通道/REPL FINISHED 终态）；问卷四问跨轮机制（task_brief 从首条人类消息写定）；choice:build_way 断点流（ModelClient 首个图内驱动）；guidance_trigger 纯映射落图。**spec 升 v1.2**（Lead 补录）：仪表盘 +user_mode/guidance_pref/decision_mode/skill_packs、私有 key 表 +resolution_inputs；Q4 选项文案为票内发明记档。审计接线已做（c74aa49：ShellTool 可选注入 AuditLog，deny/ask 判决时刻落账）；MeteredModel→cli 装配仍待（05 票 Actor 引入真 ModelClient 注入点时做）。
 
 **Q61（05 票主环拓扑终裁，2026-10-25 凌晨）**：一轮=一次 invoke 必到 END；**主环跨 invoke 续跑（轮节律制）**——每工作轮 = context_assembler→actor→verifier→END（round 断点），用户下条输入融合进 actor_messages 驱动下一轮；清而未过轮 = verifier→PLANNER（同轮重新规划）→planner→END；计数=5 轮 = verifier→LOOP_EXHAUSTED→END。图内唯一回边 = verifier→planner。**裁定依据**：①"每轮 turn_end_reason/assembled_context 每轮覆写"只有跨 invoke 可断言；②用户故事 17（每轮交还控制权）+ way1"正常 agent 对话节律"同构；③CLI 无真模型时每轮必终止（图内无界 assembler↺ 环会挂死骨架 CLI）；④spec 入口路由真值表主环行全部变活代码（图内环方案下是死代码）。派工纪律第三次升级：**预裁必须零决策点**——02/03/05 首派各烧掉一整个子代理上下文（02 在问卷跨轮机制、03 在 8 类正则语义、05 在本拓扑歧义）；终裁版派工单把裁定连同图拓扑伪代码直灌，子代理纯执行。
+- 05 票完成（合并 f689b88，421 绿，+91）：**耗尽态不对称设计钉板**——图内边 _after_verifier 计数最前（耗尽即时触发）；入口边 todos 先序（耗尽恢复输入 → planner 见 count>=5 清零开新循环）。Lead 曾拟"入口也计数先序"，分析后撤回：会卡死恢复路径（耗尽态=清+false+count5 永远再判 LOOP_EXHAUSTED），且 spec 真值表行序即 todos 先序——实现者的异议裁定正确。Role.+VERIFIER（ModelClient.role 受控词汇扩展，fusion 映射未动）；PLACEHOLDER 全删；model=None 时 actor→END 直连（骨架防挂死，真模型票闭合 verifier 环）。
 
 ## 挂起 / 待办
 
