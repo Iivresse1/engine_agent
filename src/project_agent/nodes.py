@@ -489,9 +489,18 @@ def planner_node(state: Mapping[str, Any]) -> dict[str, Any]:
     - todos 已设 → 重规划：todos 全新 pending + main_loop_count 保留
       （旧值 >=5 → 清零开新循环：耗尽恢复路径）
     - round_end："已列出 N 项计划"（todo_board 渲染新板三态）
+    - 07 终裁 D（验收 5）：way4 且 selected_proposal 已设 → 首项改为
+      f"深化方案：{proposal_set[idx]}"（超过 40 字截断），其余项照 way4 模板；
+      其余方式照旧模板
     """
     way = str(state.get("build_way") or "")
     contents = list(_PLANNER_TEMPLATES.get(way, [])) or [_PLANNER_FALLBACK]
+    if way == "way4" and state.get("selected_proposal") is not None:
+        proposal_set = [str(item) for item in (state.get("proposal_set") or [])]
+        idx = state.get("selected_proposal")
+        if isinstance(idx, int) and 0 <= idx < len(proposal_set):
+            summary = proposal_set[idx][:40]
+            contents = [f"深化方案：{summary}", *contents[1:]]
     todos = [{"content": content, "status": "pending"} for content in contents]
     if state.get("todos"):
         count = int(state.get("main_loop_count") or 0)
