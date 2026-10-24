@@ -1,4 +1,4 @@
-"""骨架节点：ask_tasks / build_ways（choice:build_way 断点流）/ placeholder。
+"""骨架节点：ask_tasks / build_ways（choice:build_way 断点流）/ guidance_trigger / planner。
 
 全部可重入：已写字段不再改写（断点续跑下轮重进不重复副作用）。
 build_ways 由 make_build_ways_node(model) 工厂构造——model=None 走静态推荐。
@@ -318,6 +318,34 @@ def guidance_trigger_node(state: Mapping[str, Any]) -> dict[str, Any]:
     return {"guidance_mode": mode}
 
 
-def placeholder_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """default 相位占位：输入已融合、状态已保存，后续相位随票落位。"""
-    return _round_end("占位：该相位未实现（01 票骨架）。输入已融合，状态已保存。", state)
+# 05：planner todos 模板（按构建方式；中文动词短语，测试断言结构非文案）
+_PLANNER_TEMPLATES: dict[str, list[str]] = {
+    "way1": ["梳理需求边界", "推进对话任务"],
+    "way2": ["梳理需求边界", "产出一页纸方案"],
+    "way3": ["梳理需求边界", "编写 README", "编写 TODO", "生成目录树"],
+    "way4": ["梳理需求边界", "搭建文档框架", "填写核心文档"],
+}
+_PLANNER_FALLBACK = "确认构建范围"
+
+
+def planner_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """planner：读 build_way 产 todos（全 pending 工作流级清单）。
+
+    - todos 空 → 新计划：todos + main_loop_count=0
+    - todos 已设 → 重规划：todos 全新 pending + main_loop_count 保留
+      （旧值 >=5 → 清零开新循环：耗尽恢复路径）
+    - round_end："已列出 N 项计划"（todo_board 渲染新板三态）
+    """
+    way = str(state.get("build_way") or "")
+    contents = list(_PLANNER_TEMPLATES.get(way, [])) or [_PLANNER_FALLBACK]
+    todos = [{"content": content, "status": "pending"} for content in contents]
+    if state.get("todos"):
+        count = int(state.get("main_loop_count") or 0)
+        main_loop_count = 0 if count >= 5 else count
+    else:
+        main_loop_count = 0
+    return {
+        "todos": todos,
+        "main_loop_count": main_loop_count,
+        **_round_end(f"已列出 {len(todos)} 项计划", {**state, "todos": todos}),
+    }

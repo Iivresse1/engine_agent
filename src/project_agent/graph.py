@@ -19,14 +19,14 @@ from project_agent.nodes import (
     ask_tasks_node,
     guidance_trigger_node,
     make_build_ways_node,
-    placeholder_node,
+    planner_node,
 )
 from project_agent.routing import (
     ASK_TASKS,
     BUILD_WAYS,
     END_MAP,
     GUIDANCE_TRIGGER,
-    PLACEHOLDER,
+    PLANNER,
     route_from_start,
 )
 from project_agent.state import GraphState
@@ -46,7 +46,7 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
-    graph.add_node(PLACEHOLDER, placeholder_node)
+    graph.add_node(PLANNER, planner_node)
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
@@ -56,7 +56,7 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
         {GUIDANCE_TRIGGER: GUIDANCE_TRIGGER, END: END},
     )
     graph.add_edge(GUIDANCE_TRIGGER, END)
-    graph.add_edge(PLACEHOLDER, END)
+    graph.add_edge(PLANNER, END)
 
     # REPL 宿主始终带 checkpointer（无持久化就没有断点续跑）
     if checkpointer is None:
