@@ -17,13 +17,17 @@ from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
     ask_tasks_node,
+    context_assembler_node,
     guidance_trigger_node,
+    make_actor_node,
     make_build_ways_node,
     planner_node,
 )
 from project_agent.routing import (
+    ACTOR,
     ASK_TASKS,
     BUILD_WAYS,
+    CONTEXT_ASSEMBLER,
     END_MAP,
     GUIDANCE_TRIGGER,
     PLANNER,
@@ -47,6 +51,8 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLANNER, planner_node)
+    graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
+    graph.add_node(ACTOR, make_actor_node(model))
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
@@ -57,6 +63,11 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     )
     graph.add_edge(GUIDANCE_TRIGGER, END)
     graph.add_edge(PLANNER, END)
+    # 主环：assembler→actor（顺序边）；actor→END 为切片 3 临时直连，
+    # 切片 4 接 verifier（model is None 时保持 actor→END 直连——05 骨架 CLI
+    # 无真模型，主环 inert 不挂死；真模型票接入后闭合 verifier 环）。
+    graph.add_edge(CONTEXT_ASSEMBLER, ACTOR)
+    graph.add_edge(ACTOR, END)
 
     # REPL 宿主始终带 checkpointer（无持久化就没有断点续跑）
     if checkpointer is None:

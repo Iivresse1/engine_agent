@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from project_agent.onboarding import (
     QUESTIONNAIRE,
@@ -377,3 +377,82 @@ def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
         }
     }
     return updates
+
+
+def _thread_id_from(config: Any) -> str:
+    thread_id = ""
+    if isinstance(config, Mapping):
+        configurable = config.get("configurable") or {}
+        if isinstance(configurable, Mapping):
+            thread_id = str(configurable.get("thread_id") or "")
+    return thread_id
+
+
+def _actor_model_messages(
+    state: Mapping[str, Any]
+) -> list[dict[str, str]]:
+    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。"""
+    context = state.get("assembled_context") or {}
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": str(context.get("system") or "")}
+    ]
+    for msg in state.get("actor_messages") or []:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": str(msg.content)})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": str(msg.content)})
+    return messages
+
+
+def _check_todos(todos: Any, response_text: str) -> list[Any]:
+    """todos 勾选：pending/in_progress 项若 f"完成：{content}" 是响应子串→completed。
+
+    精确匹配，匹配不到跳过；返回整列表（todos 无 reducer 整覆写）。
+    """
+    new_todos: list[Any] = []
+    for item in todos or []:
+        if (
+            isinstance(item, dict)
+            and item.get("status") in ("pending", "in_progress")
+            and f"完成：{item.get('content', '')}" in response_text
+        ):
+            new_todos.append({**item, "status": "completed"})
+        else:
+            new_todos.append(item)
+    return new_todos
+
+
+_ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产出。"
+
+
+def make_actor_node(model: Any = None):
+    """actor 节点工厂（05 票终裁 7）。
+
+    - model=None：写 round_end(05 骨架通告) 即返，不调模型不产 AIMessage
+      （CLI 无真模型时主环 inert 不挂死；真模型票接入后闭合 verifier 环）
+    - 有模型：system=assembled_context["system"] + actor_messages 历史转 dict
+      调 model.complete(role=actor)；产出 AIMessage 追加 actor_messages；
+      todos 按"完成：{content}"精确子串勾选；round_output=模型全文
+    """
+
+    def actor_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if model is None:
+            return _round_end(_ACTOR_SKELETON_NOTICE, state)
+
+        messages = _actor_model_messages(state)
+        result = model.complete(
+            messages,
+            role=Role.ACTOR.value,
+            thread_id=_thread_id_from(config),
+        )
+        text = str(result.text)
+        new_todos = _check_todos(state.get("todos") or [], text)
+        return {
+            "actor_messages": [AIMessage(content=text)],
+            "todos": new_todos,
+            **_round_end(text, {**state, "todos": new_todos}),
+        }
+
+    return actor_node

@@ -1,7 +1,8 @@
 """入口路由器：START 后纯代码条件边——相位重建（spec v1.1『入口路由真值表』）。
 
 02 票：真值表 +问卷两行（部分填写→ask_tasks；task_brief 已设+字段缺→build_ways）。
-05 票：行 3 落地——todos 为空（falsy）→ planner（新计划轮）。
+05 票：行 3——todos 为空（falsy）→ planner（新计划轮）；行 4——todos 未清
+（非全 completed）→ context_assembler（主环工作轮入口）。
 行序即优先级；guidance_trigger 相位由 build_ways 条件边接入（非 START 路由）。
 """
 
@@ -13,11 +14,14 @@ ASK_TASKS = "ask_tasks"
 BUILD_WAYS = "build_ways"
 GUIDANCE_TRIGGER = "guidance_trigger"
 PLANNER = "planner"
+CONTEXT_ASSEMBLER = "context_assembler"
+ACTOR = "actor"
 
 END_MAP: dict[str, str] = {
     ASK_TASKS: ASK_TASKS,
     BUILD_WAYS: BUILD_WAYS,
     PLANNER: PLANNER,
+    CONTEXT_ASSEMBLER: CONTEXT_ASSEMBLER,
 }
 
 ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
@@ -42,9 +46,19 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
             "main_loop_count": 2,
             "turn_end_reason": "round",
         },
-        PLANNER,  # 05：todos 已设（工作相位路由随后续切片落位）
+        CONTEXT_ASSEMBLER,  # 05 行 4：todos 未清→主环入口
     ),
 ]
+
+
+def _todos_all_completed(todos: Any) -> bool:
+    """纯代码三态扫描：空表→False（防御）；全 completed→True。"""
+    items = list(todos or [])
+    if not items:
+        return False
+    return all(
+        isinstance(item, dict) and item.get("status") == "completed" for item in items
+    )
 
 
 def entry_route(dashboard: Mapping[str, Any]) -> str:
@@ -52,7 +66,12 @@ def entry_route(dashboard: Mapping[str, Any]) -> str:
         return ASK_TASKS
     if not dashboard.get("build_way"):
         return BUILD_WAYS
-    return PLANNER
+    todos = dashboard.get("todos") or []
+    if not todos:  # 行 3：todos 空（falsy）→ planner（新计划）
+        return PLANNER
+    if not _todos_all_completed(todos):  # 行 4：todos 未清 → 主环入口
+        return CONTEXT_ASSEMBLER
+    return PLANNER  # 行 5/6/7 切片 4 落位（todos 清暂回落 planner）
 
 
 def route_from_start(state: Mapping[str, Any]) -> str:
