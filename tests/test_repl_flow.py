@@ -46,7 +46,14 @@ def test_repl_session_rounds_slash_and_status(workspace):
         + [
             "我想做一个记账 CLI",
             "/status",
-            "完整文档",
+            "我不了解编程",
+            "自动每轮",
+            "AI 自动审核",
+            "默认技能包",
+            "/status",
+            "嗯",  # 首入 build_ways：发 choice 断点
+            "/status",
+            "用完整文档",  # 决议通道输入 → build_way 写定
             "/status",
             "/nope",
             "/exit",
@@ -61,9 +68,18 @@ def test_repl_session_rounds_slash_and_status(workspace):
     out = "\n".join(io.outputs)
     # 非斜杠输入进主图，断点渲染
     assert "断点 · round" in out
-    # /status 展示仪表盘：task_brief 已被 ask_tasks 桩写入
+    # 四问渲染
+    assert "断点 · question" in out
+    assert "你的编程基础？" in out
+    assert "我不了解编程" in out  # Q1 选项
+    # /status 展示仪表盘
     assert "task_brief: 我想做一个记账 CLI" in out
-    # 第二轮后 build_way 已置位
+    assert "user_mode: novice" in out
+    # choice 断点渲染：4 选项 + 推荐 + 一句话理由
+    assert "断点 · choice:build_way" in out
+    assert "轻 grill" in out
+    assert "个人作品有沉淀不臃肿" in out
+    # 决议后 build_way 已置位
     assert "build_way: way4" in out
     # 未知斜杠零 LLM：报错并列出可用命令
     assert "未知命令 /nope" in out
@@ -92,6 +108,26 @@ def test_repl_renders_missing_reason_as_unrecorded(workspace):
     io = ScriptedIO(["hello", "/exit"])
     ReplHost(StubApp(), io, new_thread_id()).run()
     assert "断点 · 未记录" in "\n".join(io.outputs)
+
+
+def test_finished_terminal_state_notices_and_does_not_invoke(workspace):
+    """01 欠账 b：FINISHED 终态——打通知、不 invoke 不融合。"""
+    ensure_config(ConfigStore(workspace.config_path), ScriptedIO(_onboarding_answers()))
+
+    class StubApp:
+        def __init__(self) -> None:
+            self.invocations = 0
+
+        def invoke(self, update, config):
+            self.invocations += 1
+            return {"turn_end_reason": "finished", "turn_end_payload": {"delivery_paths": {}}}
+
+    stub = StubApp()
+    io = ScriptedIO(["hello", "再聊聊", "/exit"])
+    ReplHost(stub, io, new_thread_id()).run()
+    out = "\n".join(io.outputs)
+    assert "构建已完成（终态）。输入 /exit 退出。" in out
+    assert stub.invocations == 1  # FINISHED 后再输入：invoke 计数不增
 
 
 def test_slash_commands_match_by_prefix(workspace):

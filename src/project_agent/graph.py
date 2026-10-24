@@ -9,14 +9,26 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
-from project_agent.nodes import ask_tasks_node, build_ways_node, placeholder_node
-from project_agent.routing import ASK_TASKS, BUILD_WAYS, PLACEHOLDER, route_from_start
+from project_agent.nodes import (
+    ask_tasks_node,
+    guidance_trigger_node,
+    make_build_ways_node,
+    placeholder_node,
+)
+from project_agent.routing import (
+    ASK_TASKS,
+    BUILD_WAYS,
+    END_MAP,
+    GUIDANCE_TRIGGER,
+    PLACEHOLDER,
+    route_from_start,
+)
 from project_agent.state import GraphState
 
 
@@ -24,19 +36,26 @@ def new_thread_id() -> str:
     return uuid.uuid4().hex
 
 
-def build_graph(checkpointer: Any = None) -> Any:
+def _after_build_ways(state: Mapping[str, Any]) -> str:
+    """build_ways 出口：build_way 已设→guidance_trigger；未设（choice 断点）→END。"""
+    return GUIDANCE_TRIGGER if state.get("build_way") else END
+
+
+def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
-    graph.add_node(BUILD_WAYS, build_ways_node)
+    graph.add_node(BUILD_WAYS, make_build_ways_node(model))
+    graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLACEHOLDER, placeholder_node)
 
-    graph.add_conditional_edges(
-        START,
-        route_from_start,
-        {ASK_TASKS: ASK_TASKS, BUILD_WAYS: BUILD_WAYS, PLACEHOLDER: PLACEHOLDER},
-    )
+    graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
-    graph.add_edge(BUILD_WAYS, END)
+    graph.add_conditional_edges(
+        BUILD_WAYS,
+        _after_build_ways,
+        {GUIDANCE_TRIGGER: GUIDANCE_TRIGGER, END: END},
+    )
+    graph.add_edge(GUIDANCE_TRIGGER, END)
     graph.add_edge(PLACEHOLDER, END)
 
     # REPL 宿主始终带 checkpointer（无持久化就没有断点续跑）

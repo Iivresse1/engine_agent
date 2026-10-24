@@ -1,4 +1,4 @@
-"""入口路由真值表前 3 行：相位重建（纯代码，零 LLM）。"""
+"""入口路由真值表：相位重建（纯代码，零 LLM）。"""
 
 from __future__ import annotations
 
@@ -27,8 +27,24 @@ def test_empty_string_counts_as_unset():
     assert entry_route({"task_brief": "x", "build_way": ""}) == "build_ways"
 
 
+def test_partial_questionnaire_still_routes_to_ask_tasks():
+    """02 真值表新行：问卷部分填写+task_brief 未设 → ask_tasks（问卷轮）。"""
+    assert entry_route({"user_mode": "novice"}) == "ask_tasks"
+    assert (
+        entry_route({"user_mode": "novice", "guidance_pref": "auto", "skill_packs": []})
+        == "ask_tasks"
+    )
+
+
+def test_task_brief_with_missing_questionnaire_fields_routes_to_build_ways():
+    """02 真值表新行：task_brief 已设+问卷字段缺（01 遗留会话）→ build_ways。"""
+    state = {"task_brief": "已有简报", "build_way": ""}
+    assert entry_route(state) == "build_ways"
+    assert entry_route({"task_brief": "x", "user_mode": None}) == "build_ways"
+
+
 def test_other_dashboard_fields_do_not_affect_route():
-    """01 票只实现前 3 行：其余字段存在与否不改变路由。"""
+    """其余字段存在与否不改变路由。"""
     state = {
         "task_brief": "x",
         "build_way": "way4",
