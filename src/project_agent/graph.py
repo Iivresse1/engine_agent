@@ -22,6 +22,7 @@ from project_agent.nodes import (
     loop_exhausted_node,
     make_actor_node,
     make_build_ways_node,
+    make_proposals_node,
     make_verifier_node,
     planner_node,
 )
@@ -34,6 +35,7 @@ from project_agent.routing import (
     GUIDANCE_TRIGGER,
     LOOP_EXHAUSTED,
     PLANNER,
+    PROPOSALS,
     VERIFIER,
     route_from_start,
     _after_verifier,
@@ -64,6 +66,8 @@ def build_graph(
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
+    # 07：way4 三方案并行节点（model=None 走静态兜底三案）
+    graph.add_node(PROPOSALS, make_proposals_node(model))
     graph.add_node(PLANNER, planner_node)
     # 07：assembler 传 shared_docs（way4 DocScaffold 框架先行说明行）；
     # 节点签名 (state, shared_docs=None)——三参既有调用零改动。
@@ -77,6 +81,7 @@ def build_graph(
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
+    graph.add_edge(PROPOSALS, END)  # 07：断点收轮（choice:proposal）
     graph.add_conditional_edges(
         BUILD_WAYS,
         _after_build_ways,

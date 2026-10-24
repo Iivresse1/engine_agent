@@ -305,6 +305,158 @@ def _static_choice() -> dict[str, Any]:
     return _choice_breakpoint(_STATIC_RECOMMENDATION, _STATIC_REASON)
 
 
+# —— 07 终裁 C：way4 三方案并行节点 ——
+
+
+_FALLBACK_PROPOSALS: list[str] = [
+    "轻量方案：默认技术栈",
+    "均衡方案：常用技术栈",
+    "完整方案：企业级技术栈",
+]
+
+# 决议关键词（匹配 proposal_set 文本；序（轻量/均衡/完整）= idx）
+_PROPOSAL_KEYWORDS: list[tuple[str, int]] = [
+    ("轻量", 0),
+    ("均衡", 1),
+    ("完整", 2),
+]
+
+
+def _parse_proposals(text: str) -> list[str]:
+    """模型输出解析：非空行且含"|"（"方案名|一句话摘要"格式）≤3 行；
+    全不符/空 → []（调用方走兜底三案）。"""
+    lines = [
+        line.strip()
+        for line in str(text).splitlines()
+        if line.strip() and "|" in line
+    ]
+    return lines[:3]
+
+
+def _proposal_breakpoint(proposal_set: list[str]) -> dict[str, Any]:
+    """choice:proposal 断点：proposal_summaries 受控形状。"""
+    payload = validate_payload(
+        TurnEndReason.CHOICE_PROPOSAL, {"proposal_summaries": list(proposal_set)}
+    )
+    return {
+        "proposal_set": list(proposal_set),
+        "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+        "turn_end_payload": payload,
+    }
+
+
+def _interpret_proposal(
+    text: str | None, proposal_set: list[str]
+) -> int | None:
+    """解释自由文本 → 方案 idx；解释不了返回 None。
+
+    优先级：序号（裸 ^[\\W_]*[1-9][\\W_]*$ / 语境 (?:第|选项|方案|方式|选)\\s*[1-9]，
+    同 02 的 _interpret 序法）→ 关键词匹配方案文本（"轻量"→0/"均衡"→1/
+    "完整"→2，含兜底案名）。
+    """
+    if not text:
+        return None
+    m = _BARE_INDEX.match(text) or _PROPOSAL_CONTEXTUAL_INDEX.search(text)
+    if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(proposal_set):
+            return idx
+    for keyword, idx in _PROPOSAL_KEYWORDS:
+        if keyword in text and idx < len(proposal_set):
+            return idx
+    return None
+
+
+_PROPOSAL_CONTEXTUAL_INDEX = re.compile(r"(?:第|选项|方案|方式|选)\s*([1-9])")
+
+
+def make_proposals_node(model: Any = None):
+    """三方案并行节点工厂（07 终裁 C，way4 专属）。
+
+    - selected_proposal 已设 → {}（可重入零副作用）
+    - resolution_inputs 非空 → 解释：序号（裸/语境）→ selected_proposal=idx；
+      关键词匹配方案文本；成功 → 写 selected_proposal + 通道清空 +
+      round_end("方案已选定：{摘要}")；无匹配 → 清空 + 复用上轮 payload
+      校验后重发（零 model 调用）；payload 不可复用 → 兜底三案重发
+    - 无 pending：调 ModelClient（role=actor，thread_id 出 config）产三行方案；
+      解析失败/空 → 兜底三案；写 proposal_set + choice:proposal 断点
+    - model=None → 静态兜底三案（零调用）
+    """
+
+    def _model_proposals(state: Mapping[str, Any], config: Any) -> list[str]:
+        brief = str(state.get("task_brief") or "")
+        user_mode = str(state.get("user_mode") or "")
+        prompt = (
+            f"任务简报：{brief}\n"
+            f"用户编程基础：{user_mode}\n"
+            "请给出三套构建方案（技术栈 × 复杂度取舍维度），每行格式：方案名|一句话摘要，共三行。"
+        )
+        result = model.complete(
+            [{"role": "user", "content": prompt}],
+            role=Role.ACTOR.value,
+            thread_id=_thread_id_from(config),
+        )
+        parsed = _parse_proposals(str(result.text))
+        return parsed if parsed else list(_FALLBACK_PROPOSALS)
+
+    def _reuse_payload(state: Mapping[str, Any]) -> dict[str, Any] | None:
+        """复用上轮 turn_end_payload（校验通过才复用；同 build_ways 模式）。"""
+        last_payload = state.get("turn_end_payload")
+        if not isinstance(last_payload, Mapping):
+            return None
+        try:
+            return validate_payload(
+                TurnEndReason.CHOICE_PROPOSAL, dict(last_payload)
+            )
+        except Exception:
+            return None
+
+    def proposals_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if state.get("selected_proposal") is not None:
+            return {}
+
+        pending = state.get("resolution_inputs") or []
+        if pending:
+            text = str(pending[-1])
+            proposal_set = [
+                str(item) for item in (state.get("proposal_set") or [])
+            ]
+            idx = _interpret_proposal(text, proposal_set or list(_FALLBACK_PROPOSALS))
+            if idx is not None:
+                summary = (
+                    proposal_set[idx]
+                    if proposal_set and idx < len(proposal_set)
+                    else _FALLBACK_PROPOSALS[idx]
+                )
+                return {
+                    "selected_proposal": idx,
+                    "resolution_inputs": [],
+                    **_round_end(f"方案已选定：{summary}", state),
+                }
+            # 无匹配：清空通道 + 复用上轮 payload 重发（零 model 调用）
+            payload = _reuse_payload(state)
+            if payload is not None:
+                return {
+                    "resolution_inputs": [],
+                    "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+                    "turn_end_payload": payload,
+                }
+            return {
+                "resolution_inputs": [],
+                **_proposal_breakpoint(list(_FALLBACK_PROPOSALS)),
+            }
+
+        if model is not None:
+            proposal_set = _model_proposals(state, config)
+        else:
+            proposal_set = list(_FALLBACK_PROPOSALS)
+        return _proposal_breakpoint(proposal_set)
+
+    return proposals_node
+
+
 _LABEL_BY_WAY: dict[str, str] = {way: label for label, way in _WAY_BY_LABEL.items()}
 
 
