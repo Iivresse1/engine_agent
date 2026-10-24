@@ -186,6 +186,8 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
   - Spec 轴复审补充修复：loop_exhausted payload 补 scene 字段（spec L204"现场与求助说明"）
   - 空树 diff 技巧：`git hash-object -w -t tree <空文件>` 物化空树作单提交仓库的评审固定点
 
+**Q60（implement-spec 流水线，2026-10-25 凌晨）**：01 骨架（4 提交）+ 04 账单（8 提交，合并 c56c57d，75 绿）落 integration/project-agent 分支。流程纪律钉板：①implementer 派工单必须自带完整预裁设计——02/03 首派皆因子代理自行推演耗尽上下文零提交，预裁重启后正常推进；本项目票粒度=整套状态机+协议交互，超出子代理读材料自推演的预算；②合并者对每票做三件事：票收口（Status done+勾选+Comments）/ 台账 Q 记录 / 集成分支全量测试验证；③04 遗留接线待办两条：MeteredModel 挂 cli 装配（02 合并时做，账单路径 --state 同目录）、AuditLog 接 03 权限 checker 事件（03 合并时做）。
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
