@@ -190,6 +190,8 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 03 票完成（implementer 子代理，合并 e59f1fe，219 绿）：tools 包七模块 + shell_policy.json（§10.2 草案改用：管道 deny 规则删/git clone 留 ask/allow 拆 read-write）；内联脚本删除扫描增强（bash -c 'rm -rf ~' 也命中类 1）；AST 测试钉死 ADR-0001 例外边界（审批模块零图层 import）。设计裁定回填：8 类全 DENY（deny 全档生效含 yolo）、AskAgent 含 NotepadRead 共 10 件（spec v1.1+Q49 覆盖票面"四件"缩写）。
 - 02 票完成（implementer 子代理，合并 2b59e1b，330 绿）：01 三笔欠账全清（Role 枚举/resolution_inputs 通道/REPL FINISHED 终态）；问卷四问跨轮机制（task_brief 从首条人类消息写定）；choice:build_way 断点流（ModelClient 首个图内驱动）；guidance_trigger 纯映射落图。**spec 升 v1.2**（Lead 补录）：仪表盘 +user_mode/guidance_pref/decision_mode/skill_packs、私有 key 表 +resolution_inputs；Q4 选项文案为票内发明记档。审计接线已做（c74aa49：ShellTool 可选注入 AuditLog，deny/ask 判决时刻落账）；MeteredModel→cli 装配仍待（05 票 Actor 引入真 ModelClient 注入点时做）。
 
+**Q61（05 票主环拓扑终裁，2026-10-25 凌晨）**：一轮=一次 invoke 必到 END；**主环跨 invoke 续跑（轮节律制）**——每工作轮 = context_assembler→actor→verifier→END（round 断点），用户下条输入融合进 actor_messages 驱动下一轮；清而未过轮 = verifier→PLANNER（同轮重新规划）→planner→END；计数=5 轮 = verifier→LOOP_EXHAUSTED→END。图内唯一回边 = verifier→planner。**裁定依据**：①"每轮 turn_end_reason/assembled_context 每轮覆写"只有跨 invoke 可断言；②用户故事 17（每轮交还控制权）+ way1"正常 agent 对话节律"同构；③CLI 无真模型时每轮必终止（图内无界 assembler↺ 环会挂死骨架 CLI）；④spec 入口路由真值表主环行全部变活代码（图内环方案下是死代码）。派工纪律第三次升级：**预裁必须零决策点**——02/03/05 首派各烧掉一整个子代理上下文（02 在问卷跨轮机制、03 在 8 类正则语义、05 在本拓扑歧义）；终裁版派工单把裁定连同图拓扑伪代码直灌，子代理纯执行。
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
