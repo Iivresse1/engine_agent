@@ -39,6 +39,7 @@ from project_agent.routing import (
     _after_verifier,
 )
 from project_agent.state import GraphState
+from project_agent.shared_docs import SharedDocs
 
 
 def new_thread_id() -> str:
@@ -50,14 +51,22 @@ def _after_build_ways(state: Mapping[str, Any]) -> str:
     return GUIDANCE_TRIGGER if state.get("build_way") else END
 
 
-def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
+def build_graph(
+    checkpointer: Any = None,
+    model: Any = None,
+    workspace_root: Path | None = None,
+) -> Any:
+    """workspace_root 非 None → SharedDocs(workspace_root) 注入 actor 工厂
+    （06：每轮生成物带【R#】落盘 + Notepad 指令）；None → 不注入（05 行为，
+    cli.py 零改动：骨架无模型本就不落盘；真模型票接线时传 cwd）。"""
+    shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLANNER, planner_node)
     graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
-    graph.add_node(ACTOR, make_actor_node(model))
+    graph.add_node(ACTOR, make_actor_node(model, shared_docs=shared_docs))
     graph.add_node(VERIFIER, make_verifier_node(model))
     graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)
 
