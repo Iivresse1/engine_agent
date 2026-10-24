@@ -437,6 +437,19 @@ def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
     return str(result.text)
 
 
+def distill_round(messages: Any) -> str:
+    """提炼函数（05 票终裁 8，Q53=b）：最后一条 AIMessage 的 content 前 120 字符。
+
+    无 AIMessage → ""。纯函数独立单测；actor 末尾显式调用写 round_summary。
+    """
+    for msg in reversed(list(messages or [])):
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str):
+                return content[:120]
+    return ""
+
+
 # 身体表按派生 build_way 选择（终裁 7）；way2-4 身体 07 票落位——
 # 05 中全部回落 way1 身体（骨架同构）。
 _ACTOR_BODIES: dict[str, Any] = {
@@ -466,9 +479,15 @@ def make_actor_node(model: Any = None):
         body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
         text = body(state, config, model)
         new_todos = _check_todos(state.get("todos") or [], text)
+        ai_message = AIMessage(content=text)
+        # Q53=b：节点函数末尾、返回前显式调用提炼函数写 round_summary
+        round_summary = distill_round(
+            [*(state.get("actor_messages") or []), ai_message]
+        )
         return {
-            "actor_messages": [AIMessage(content=text)],
+            "actor_messages": [ai_message],
             "todos": new_todos,
+            "round_summary": round_summary,
             **_round_end(text, {**state, "todos": new_todos}),
         }
 
