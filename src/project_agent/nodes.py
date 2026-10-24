@@ -18,7 +18,7 @@ from project_agent.onboarding import (
     question_for,
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
-from project_agent.routing import _todos_all_completed
+from project_agent.routing import _todos_all_completed, derive_actor_config
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -426,9 +426,29 @@ def _check_todos(todos: Any, response_text: str) -> list[Any]:
 _ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产出。"
 
 
+def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+    """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
+    messages = _actor_model_messages(state)
+    result = model.complete(
+        messages,
+        role=Role.ACTOR.value,
+        thread_id=_thread_id_from(config),
+    )
+    return str(result.text)
+
+
+# 身体表按派生 build_way 选择（终裁 7）；way2-4 身体 07 票落位——
+# 05 中全部回落 way1 身体（骨架同构）。
+_ACTOR_BODIES: dict[str, Any] = {
+    "way1": _way1_actor_body,
+}
+
+
 def make_actor_node(model: Any = None):
     """actor 节点工厂（05 票终裁 7）。
 
+    - 每轮派生 cfg=derive_actor_config(build_way, guidance_mode)——仅用于
+      身体选择 `_ACTOR_BODIES.get(way, way1 身体)`，不持久化不写 state
     - model=None：写 round_end(05 骨架通告) 即返，不调模型不产 AIMessage
       （CLI 无真模型时主环 inert 不挂死；真模型票接入后闭合 verifier 环）
     - 有模型：system=assembled_context["system"] + actor_messages 历史转 dict
@@ -442,13 +462,9 @@ def make_actor_node(model: Any = None):
         if model is None:
             return _round_end(_ACTOR_SKELETON_NOTICE, state)
 
-        messages = _actor_model_messages(state)
-        result = model.complete(
-            messages,
-            role=Role.ACTOR.value,
-            thread_id=_thread_id_from(config),
-        )
-        text = str(result.text)
+        cfg = derive_actor_config(state.get("build_way"), state.get("guidance_mode"))
+        body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
+        text = body(state, config, model)
         new_todos = _check_todos(state.get("todos") or [], text)
         return {
             "actor_messages": [AIMessage(content=text)],

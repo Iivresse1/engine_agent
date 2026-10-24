@@ -170,3 +170,13 @@ def _after_verifier(state: Mapping[str, Any]) -> str:
 def route_from_start(state: Mapping[str, Any]) -> str:
     """图条件边函数：读仪表盘重建本轮相位（纯代码，零 LLM）。"""
     return entry_route(state)
+
+
+def derive_actor_config(build_way: Any, guidance_mode: Any) -> dict[str, Any]:
+    """8 配置派生（05 票终裁 7，验收 5）：每轮派生，不持久化不写 state。
+
+    way∈{way1..way4} 否则默认 way1；guidance_enabled=mode∈{auto,ask}。
+    05 中派生结果仅用于 actor 身体选择（way2-4 身体 07 票）。
+    """
+    way = build_way if build_way in ("way1", "way2", "way3", "way4") else "way1"
+    return {"build_way": way, "guidance_enabled": guidance_mode in ("auto", "ask")}
