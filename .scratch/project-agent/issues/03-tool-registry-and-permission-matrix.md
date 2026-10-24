@@ -4,12 +4,12 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done (2026-10-25)
 
-- [ ] 角色工具集在构造期固定；越权调用结构性不可能（测试断言 AskAgent 工具面内无 FileWrite/FileEdit/Shell）
-- [ ] 8 类正则逐类拦截表驱动测试绿；allow 命中 deny 类照样拦；yolo 档 deny 类仍拦
-- [ ] 复合命令拆段后逐段判权；wrapper 剥离后再判；解析失败 fail-closed = ask
-- [ ] Windows：rm 与 Remove-Item 都被灾难删除类命中
-- [ ] 两旋钮组合矩阵（boundary 3 × interrupt 3）表驱动绿；决策模式作为 interrupt 初值
-- [ ] 假 shell 记录调用 + 预置输出；拒绝路径不产生副作用
-- [ ] 审批走 REPL 同步回调，不产生图内断点
+- [x] 角色工具集在构造期固定；越权调用结构性不可能（测试断言 AskAgent 工具面内无 FileWrite/FileEdit/Shell）——tests/test_tool_registry.py
+- [x] 8 类正则逐类拦截表驱动测试绿；allow 命中 deny 类照样拦；yolo 档 deny 类仍拦——tests/test_static_checker.py
+- [x] 复合命令拆段后逐段判权；wrapper 剥离后再判；解析失败 fail-closed = ask——tests/test_shell_policy.py
+- [x] Windows：rm 与 Remove-Item 都被灾难删除类命中——test_catastrophic_delete_windows_dual_block
+- [x] 两旋钮组合矩阵（boundary 3 × interrupt 3）表驱动绿；决策模式作为 interrupt 初值——test_two_knob_matrix（54 例）+ test_knobs.py
+- [x] 假 shell 记录调用 + 预置输出；拒绝路径不产生副作用——tests/test_shell_tool.py（RecordingShell 复用 tests/doubles）
+- [x] 审批走 REPL 同步回调，不产生图内断点——test_no_graph_layer_imports（AST 钉死 shell_tool/approval 不 import langgraph/graph/nodes/protocol/repl）
