@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import HumanMessage
-
 from project_agent.config import IO
-from project_agent.fusion import MAINLINE_KEY, fusion_update
+from project_agent.fusion import fusion_update
 
 _BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
 _FAREWELL = "再见"
+_TERMINAL_NOTICE = "构建已完成（终态）。输入 /exit 退出。"
 
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
 _COMMANDS = ("/help", "/status", "/exit")
@@ -68,8 +67,9 @@ class ReplHost:
     def _run_turn(self, text: str) -> None:
         update = fusion_update(self._last_state, text)
         if not update:
-            # FINISHED 终态：01 骨架仍融合主线；终态旁路语义在后续票完整化
-            update = {MAINLINE_KEY: [HumanMessage(content=text)]}
+            # FINISHED 终态（01 欠账 b）：不再融合不再 invoke
+            self._io.write_line(_TERMINAL_NOTICE)
+            return
         result = dict(self._app.invoke(update, self._config))
         self._last_state = result
 

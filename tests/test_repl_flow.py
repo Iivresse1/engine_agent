@@ -110,6 +110,26 @@ def test_repl_renders_missing_reason_as_unrecorded(workspace):
     assert "断点 · 未记录" in "\n".join(io.outputs)
 
 
+def test_finished_terminal_state_notices_and_does_not_invoke(workspace):
+    """01 欠账 b：FINISHED 终态——打通知、不 invoke 不融合。"""
+    ensure_config(ConfigStore(workspace.config_path), ScriptedIO(_onboarding_answers()))
+
+    class StubApp:
+        def __init__(self) -> None:
+            self.invocations = 0
+
+        def invoke(self, update, config):
+            self.invocations += 1
+            return {"turn_end_reason": "finished", "turn_end_payload": {"delivery_paths": {}}}
+
+    stub = StubApp()
+    io = ScriptedIO(["hello", "再聊聊", "/exit"])
+    ReplHost(stub, io, new_thread_id()).run()
+    out = "\n".join(io.outputs)
+    assert "构建已完成（终态）。输入 /exit 退出。" in out
+    assert stub.invocations == 1  # FINISHED 后再输入：invoke 计数不增
+
+
 def test_slash_commands_match_by_prefix(workspace):
     """spec『路由』：斜杠命令前缀匹配（零 LLM）——带尾随词也命中。"""
     ensure_config(ConfigStore(workspace.config_path), ScriptedIO(_onboarding_answers()))
