@@ -188,6 +188,7 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 
 **Q60（implement-spec 流水线，2026-10-25 凌晨）**：01 骨架（4 提交）+ 04 账单（8 提交，合并 c56c57d，75 绿）落 integration/project-agent 分支。流程纪律钉板：①implementer 派工单必须自带完整预裁设计——02/03 首派皆因子代理自行推演耗尽上下文零提交，预裁重启后正常推进；本项目票粒度=整套状态机+协议交互，超出子代理读材料自推演的预算；②合并者对每票做三件事：票收口（Status done+勾选+Comments）/ 台账 Q 记录 / 集成分支全量测试验证；③04 遗留接线待办两条：MeteredModel 挂 cli 装配（02 合并时做，账单路径 --state 同目录）、AuditLog 接 03 权限 checker 事件（03 合并时做）。
 - 03 票完成（implementer 子代理，合并 e59f1fe，219 绿）：tools 包七模块 + shell_policy.json（§10.2 草案改用：管道 deny 规则删/git clone 留 ask/allow 拆 read-write）；内联脚本删除扫描增强（bash -c 'rm -rf ~' 也命中类 1）；AST 测试钉死 ADR-0001 例外边界（审批模块零图层 import）。设计裁定回填：8 类全 DENY（deny 全档生效含 yolo）、AskAgent 含 NotepadRead 共 10 件（spec v1.1+Q49 覆盖票面"四件"缩写）。
+- 02 票完成（implementer 子代理，合并 2b59e1b，330 绿）：01 三笔欠账全清（Role 枚举/resolution_inputs 通道/REPL FINISHED 终态）；问卷四问跨轮机制（task_brief 从首条人类消息写定）；choice:build_way 断点流（ModelClient 首个图内驱动）；guidance_trigger 纯映射落图。**spec 升 v1.2**（Lead 补录）：仪表盘 +user_mode/guidance_pref/decision_mode/skill_packs、私有 key 表 +resolution_inputs；Q4 选项文案为票内发明记档。审计接线已做（c74aa49：ShellTool 可选注入 AuditLog，deny/ask 判决时刻落账）；MeteredModel→cli 装配仍待（05 票 Actor 引入真 ModelClient 注入点时做）。
 
 ## 挂起 / 待办
 

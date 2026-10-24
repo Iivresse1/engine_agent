@@ -1,7 +1,7 @@
-# Spec: 项目构建 Agent（Project Agent）v1.1
+# Spec: 项目构建 Agent（Project Agent）v1.2
 
 Status: ready-for-agent
-发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）
+发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）
 来源: 32 轮 grilling 设计会话（决策台账 .scratch/project-agent/decisions.md，47+ 决策）
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0004
 
@@ -131,6 +131,10 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | task_brief | str | ask_tasks | 任务简报，一次写定 |
 | build_way | way1–way4 | build_ways 决议轮 | 构建方式 |
 | guidance_mode | auto/ask/off | guidance_trigger | AskAgent 指引三态 |
+| user_mode | experienced/novice | 首启问卷 Q1 | 编程基础（02 票补录 v1.2） |
+| guidance_pref | auto/ask/off | 首启问卷 Q2 | 指引偏好（guidance_trigger 映射输入；02 票补录 v1.2） |
+| decision_mode | ai_review/manual | 首启问卷 Q3 | 决策模式=interrupt 旋钮初值（02 票补录 v1.2） |
+| skill_packs | list[str] | 首启问卷 Q4 | 技能包选择（选项文案"默认技能包/暂不启用"为 02 票实现发明，后续技能票可调；02 票补录 v1.2） |
 | proposal_set | list（≤3 方案摘要） | 三方案并行节点 | way4 专属 |
 | selected_proposal | int | 选定轮 | way4 选定索引 |
 | todos | list[{content, status 三态}] | planner 建 / actor 勾 | 工作流级计划，gate 判定对象（区别于 TodoWrite 工具私有面板与交付物 TODO.md——三个"todo"互不相同） |
@@ -155,6 +159,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | actor_messages | 主线角色（way1–4 共用一条） | 追加；头部可驻留合并记忆区（头部单包，每包首行标覆盖轮次） |
 | demo_messages | DemoAgent | 追加；报错回传融合于此（v1 的"独立 thread"表述被 v2 单图吸收） |
 | assembled_context | Actor | 每轮整覆写——两段式的"装"半段 |
+| resolution_inputs | 决议节点 | 无 reducer 整覆写：融合端按 reason 追加 [*existing, text]，决议节点消费后返回 [] 清空（RESOLUTION 类断点的显式语义，02 票补录 v1.2） |
 | 旁路 AskAgent 独立 thread | 图外，REPL 分发 | 追加，checkpointer 同机制，断点协议同构 |
 | TodoWrite 私有三态面板 | 各角色 | 角色内部，不落盘不共享不经工具 |
 
