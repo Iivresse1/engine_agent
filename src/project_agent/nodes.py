@@ -21,8 +21,11 @@ from project_agent.protocol import Role, TurnEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
 from project_agent.scopes import rule_for, tools_for_scope
 from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
-from project_agent.skills import skill_heads
+from project_agent.skills import recommendation_reason, skill_heads
 from project_agent.tools.registry import ALL_TOOLS
+
+# 已注册技能名集合（触发判定的命中表）
+_SKILL_NAMES = frozenset(head.name for head in skill_heads())
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -444,11 +447,18 @@ def _thread_id_from(config: Any) -> str:
 def _actor_model_messages(
     state: Mapping[str, Any]
 ) -> list[dict[str, str]]:
-    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。"""
+    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。
+
+    09 工具子集送达：system 尾行注入 "【可用工具】a、b、c"（子集=assembler
+    装的 scope 交集——终裁：不用 langchain middleware，1.x 版本敏感，改在
+    actor 的 model 调用前注入 system 尾行）。
+    """
     context = state.get("assembled_context") or {}
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": str(context.get("system") or "")}
-    ]
+    system = str(context.get("system") or "")
+    tools_subset = [str(tool) for tool in context.get("tools_subset") or ()]
+    if tools_subset:
+        system += f"\n【可用工具】{'、'.join(tools_subset)}"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     for msg in state.get("actor_messages") or []:
         if isinstance(msg, HumanMessage):
             messages.append({"role": "user", "content": str(msg.content)})
@@ -480,11 +490,46 @@ _ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产
 # 06：Notepad 指令分隔符——响应含 "记录：{note}" 子串即逐条入 Notepad
 _NOTE_MARKER = "记录："
 
+# 09：技能懒加载触发/推荐理由模式（"送"半段轻桩）
+_SKILL_MARKER = "技能："
+_RECOMMEND_RE = re.compile(r"推荐技能：([^\n（(]+)[（(]([^）)]*)[）)]")
+
 
 def _parse_notes(text: str) -> list[str]:
     """「记录：{note}」指令解析：str.split(_NOTE_MARKER) 后取非空段，
     段尾空白 strip；无→零条（单层 split——note 内再含分隔符不递归拆分）。"""
     return [segment.strip() for segment in text.split(_NOTE_MARKER)[1:] if segment.strip()]
+
+
+def _triggered_skill(text: str) -> str | None:
+    """技能懒加载触发：响应含 "技能：{name}" 子串 → name（首个空白分词）
+    命中已注册技能头 → 返回 name（skill_body 全文读出即触发——不进模型
+    调用）；无命中→None。"""
+    for segment in text.split(_SKILL_MARKER)[1:]:
+        tokens = segment.strip().split()
+        if tokens and tokens[0] in _SKILL_NAMES:
+            return tokens[0]
+    return None
+
+
+def _apply_recommendation_reason(text: str) -> str:
+    """推荐理由 ≤20 字代码硬约束：响应含 "推荐技能：{name}（{reason}）" 模式
+    → reason 过 recommendation_reason 截断（与 02 build_ways 同法）。"""
+    def _clip(match: re.Match[str]) -> str:
+        return f"推荐技能：{match.group(1)}（{recommendation_reason(match.group(2))}）"
+
+    return _RECOMMEND_RE.sub(_clip, text)
+
+
+def _delivery_output(text: str, shared_docs: Any) -> str:
+    """actor 送达后置：技能懒加载触发提示（shared_docs 可用才记；语义桩——
+    skill_body(name) 读出即触发，不进模型调用）。推荐理由截断与之独立叠加。"""
+    out = _apply_recommendation_reason(text)
+    if shared_docs is not None:
+        name = _triggered_skill(text)
+        if name is not None:
+            out += f"（技能 {name} 已全文载入）"
+    return out
 
 
 def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
@@ -536,6 +581,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
       ③ 响应含 "记录：{note}" 子串→逐条 notepad_add +
         notes_version=旧+写入条数（单调自增）
       ④ round_summary/turn_end 照旧（round_end 板用勾选后 todos）
+    - 09 送达扩展：round_output 过 _delivery_output——推荐理由模式截断
+      （≤20 字硬约束）+ shared_docs 可用且技能命中时记 round_end 提示
+      "技能 {name} 已全文载入"（懒加载触发桩；AIMessage/落盘/round_summary
+      均保持模型原文——提示只进断点 payload）
     - shared_docs=None 或 model=None：行为与 05 完全一致（不落盘——既有
       421 测试零改动，硬约束）
     """
@@ -571,8 +620,13 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
             for note in notes:
                 shared_docs.notepad_add(round_count, note)
             updates["notes_version"] = int(state.get("notes_version") or 0) + len(notes)
-        # ④ round_end 板用勾选后 todos（05 既有）
-        updates.update(_round_end(text, {**state, "todos": new_todos}))
+        # ④ round_end 板用勾选后 todos（05 既有）；round_output 过 09 送达
+        # 后置（推荐理由截断 + 技能懒加载触发提示）
+        updates.update(
+            _round_end(
+                _delivery_output(text, shared_docs), {**state, "todos": new_todos}
+            )
+        )
         return updates
 
     return actor_node
