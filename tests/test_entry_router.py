@@ -44,7 +44,7 @@ def test_task_brief_with_missing_questionnaire_fields_routes_to_build_ways():
 
 
 def test_other_dashboard_fields_do_not_affect_route():
-    """其余字段存在与否不改变路由。"""
+    """其余字段（计数/上轮 reason）不改变路由——由 todos 三态决定（05 行 4）。"""
     state = {
         "task_brief": "x",
         "build_way": "way4",
@@ -52,4 +52,4 @@ def test_other_dashboard_fields_do_not_affect_route():
         "main_loop_count": 3,
         "turn_end_reason": "round",
     }
-    assert entry_route(state) == "placeholder"
+    assert entry_route(state) == "context_assembler"

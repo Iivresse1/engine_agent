@@ -17,17 +17,26 @@ from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
     ask_tasks_node,
+    context_assembler_node,
     guidance_trigger_node,
+    loop_exhausted_node,
+    make_actor_node,
     make_build_ways_node,
-    placeholder_node,
+    make_verifier_node,
+    planner_node,
 )
 from project_agent.routing import (
+    ACTOR,
     ASK_TASKS,
     BUILD_WAYS,
+    CONTEXT_ASSEMBLER,
     END_MAP,
     GUIDANCE_TRIGGER,
-    PLACEHOLDER,
+    LOOP_EXHAUSTED,
+    PLANNER,
+    VERIFIER,
     route_from_start,
+    _after_verifier,
 )
 from project_agent.state import GraphState
 
@@ -46,7 +55,11 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
-    graph.add_node(PLACEHOLDER, placeholder_node)
+    graph.add_node(PLANNER, planner_node)
+    graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
+    graph.add_node(ACTOR, make_actor_node(model))
+    graph.add_node(VERIFIER, make_verifier_node(model))
+    graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
@@ -56,7 +69,21 @@ def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
         {GUIDANCE_TRIGGER: GUIDANCE_TRIGGER, END: END},
     )
     graph.add_edge(GUIDANCE_TRIGGER, END)
-    graph.add_edge(PLACEHOLDER, END)
+    graph.add_edge(PLANNER, END)
+    # 主环：assembler→actor→verifier→（计数/双过/未清/清而未过）→END|PLANNER|LOOP_EXHAUSTED
+    graph.add_edge(CONTEXT_ASSEMBLER, ACTOR)
+    if model is None:
+        # 05 骨架 CLI 无真模型：actor→END 直连（跳过 verifier），主环 inert 不挂死；
+        # 真模型票接入后闭合 verifier 环。
+        graph.add_edge(ACTOR, END)
+    else:
+        graph.add_edge(ACTOR, VERIFIER)
+        graph.add_conditional_edges(
+            VERIFIER,
+            _after_verifier,
+            {LOOP_EXHAUSTED: LOOP_EXHAUSTED, END: END, PLANNER: PLANNER},
+        )
+        graph.add_edge(LOOP_EXHAUSTED, END)
 
     # REPL 宿主始终带 checkpointer（无持久化就没有断点续跑）
     if checkpointer is None:

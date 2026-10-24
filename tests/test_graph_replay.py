@@ -77,11 +77,11 @@ def test_state_restored_across_app_instances():
     r = app2.invoke(_say("继续"), _cfg())
     assert r["task_brief"] == "原始想法"
     assert r["build_way"] == "way2"
-    assert "占位" in r["turn_end_payload"]["round_output"]  # 跳过 ask_tasks/build_ways
+    assert "已列出" in r["turn_end_payload"]["round_output"]  # 05：todos 空→planner 新计划轮
 
 
 def test_full_onboarding_to_completion_replay():
-    """大回放：idea→四问→简报→choice→决议→guidance→占位，逐轮断言。
+    """大回放：idea→四问→简报→choice→决议→guidance→planner，逐轮断言。
 
     - 四问仅首次（后续轮零 question reason——choice 之后不再有问卷）
     - task_brief 恒定（写定后不被后续轮改写）
@@ -129,13 +129,13 @@ def test_full_onboarding_to_completion_replay():
     assert r["task_brief"] == brief  # 恒定
     assert len(model.calls) == 1  # 决议不重调 model
 
-    # 后续轮：零 question reason（四问仅首次）
+    # 后续轮：零 question reason（四问仅首次）——05：todos 空→planner 出计划
     r = app.invoke(_say("继续"), cfg)
     assert r["turn_end_reason"] == "round"
-    assert "占位" in r["turn_end_payload"]["round_output"]
+    assert "已列出" in r["turn_end_payload"]["round_output"]
     assert r["task_brief"] == brief
     assert r["turn_end_reason"] != "question"
-    assert len(model.calls) == 1
+    assert len(model.calls) == 1  # planner 不耗模型出牌
 
 
 def test_guidance_mode_persists_across_app_instances():

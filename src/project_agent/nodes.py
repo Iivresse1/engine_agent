@@ -1,4 +1,4 @@
-"""骨架节点：ask_tasks / build_ways（choice:build_way 断点流）/ placeholder。
+"""骨架节点：ask_tasks / build_ways（choice:build_way 断点流）/ guidance_trigger / planner。
 
 全部可重入：已写字段不再改写（断点续跑下轮重进不重复副作用）。
 build_ways 由 make_build_ways_node(model) 工厂构造——model=None 走静态推荐。
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from project_agent.onboarding import (
     QUESTIONNAIRE,
@@ -18,6 +18,7 @@ from project_agent.onboarding import (
     question_for,
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
+from project_agent.routing import _todos_all_completed, derive_actor_config
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -318,6 +319,261 @@ def guidance_trigger_node(state: Mapping[str, Any]) -> dict[str, Any]:
     return {"guidance_mode": mode}
 
 
-def placeholder_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """default 相位占位：输入已融合、状态已保存，后续相位随票落位。"""
-    return _round_end("占位：该相位未实现（01 票骨架）。输入已融合，状态已保存。", state)
+# 05：planner todos 模板（按构建方式；中文动词短语，测试断言结构非文案）
+_PLANNER_TEMPLATES: dict[str, list[str]] = {
+    "way1": ["梳理需求边界", "推进对话任务"],
+    "way2": ["梳理需求边界", "产出一页纸方案"],
+    "way3": ["梳理需求边界", "编写 README", "编写 TODO", "生成目录树"],
+    "way4": ["梳理需求边界", "搭建文档框架", "填写核心文档"],
+}
+_PLANNER_FALLBACK = "确认构建范围"
+
+
+def planner_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """planner：读 build_way 产 todos（全 pending 工作流级清单）。
+
+    - todos 空 → 新计划：todos + main_loop_count=0
+    - todos 已设 → 重规划：todos 全新 pending + main_loop_count 保留
+      （旧值 >=5 → 清零开新循环：耗尽恢复路径）
+    - round_end："已列出 N 项计划"（todo_board 渲染新板三态）
+    """
+    way = str(state.get("build_way") or "")
+    contents = list(_PLANNER_TEMPLATES.get(way, [])) or [_PLANNER_FALLBACK]
+    todos = [{"content": content, "status": "pending"} for content in contents]
+    if state.get("todos"):
+        count = int(state.get("main_loop_count") or 0)
+        main_loop_count = 0 if count >= 5 else count
+    else:
+        main_loop_count = 0
+    return {
+        "todos": todos,
+        "main_loop_count": main_loop_count,
+        **_round_end(f"已列出 {len(todos)} 项计划", {**state, "todos": todos}),
+    }
+
+
+def _pending_count(todos: Any) -> int:
+    return sum(
+        1
+        for item in todos or []
+        if isinstance(item, dict) and item.get("status") != "completed"
+    )
+
+
+def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
+
+    读 current_scope / todos / guidance_mode / build_way；不写任何消息。
+    """
+    todos = state.get("todos") or []
+    updates: dict[str, Any] = {
+        "assembled_context": {
+            "system": (
+                f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+                f"指引 {state.get('guidance_mode') or ''}，"
+                f"待办 {_pending_count(todos)} 项"
+            ),
+            "todo_board": _todo_board(state),
+            "scope": str(state.get("current_scope") or "main"),
+        }
+    }
+    return updates
+
+
+def _thread_id_from(config: Any) -> str:
+    thread_id = ""
+    if isinstance(config, Mapping):
+        configurable = config.get("configurable") or {}
+        if isinstance(configurable, Mapping):
+            thread_id = str(configurable.get("thread_id") or "")
+    return thread_id
+
+
+def _actor_model_messages(
+    state: Mapping[str, Any]
+) -> list[dict[str, str]]:
+    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。"""
+    context = state.get("assembled_context") or {}
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": str(context.get("system") or "")}
+    ]
+    for msg in state.get("actor_messages") or []:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": str(msg.content)})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": str(msg.content)})
+    return messages
+
+
+def _check_todos(todos: Any, response_text: str) -> list[Any]:
+    """todos 勾选：pending/in_progress 项若 f"完成：{content}" 是响应子串→completed。
+
+    精确匹配，匹配不到跳过；返回整列表（todos 无 reducer 整覆写）。
+    """
+    new_todos: list[Any] = []
+    for item in todos or []:
+        if (
+            isinstance(item, dict)
+            and item.get("status") in ("pending", "in_progress")
+            and f"完成：{item.get('content', '')}" in response_text
+        ):
+            new_todos.append({**item, "status": "completed"})
+        else:
+            new_todos.append(item)
+    return new_todos
+
+
+_ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产出。"
+
+
+def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+    """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
+    messages = _actor_model_messages(state)
+    result = model.complete(
+        messages,
+        role=Role.ACTOR.value,
+        thread_id=_thread_id_from(config),
+    )
+    return str(result.text)
+
+
+def distill_round(messages: Any) -> str:
+    """提炼函数（05 票终裁 8，Q53=b）：最后一条 AIMessage 的 content 前 120 字符。
+
+    无 AIMessage → ""。纯函数独立单测；actor 末尾显式调用写 round_summary。
+    """
+    for msg in reversed(list(messages or [])):
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str):
+                return content[:120]
+    return ""
+
+
+# 身体表按派生 build_way 选择（终裁 7）；way2-4 身体 07 票落位——
+# 05 中全部回落 way1 身体（骨架同构）。
+_ACTOR_BODIES: dict[str, Any] = {
+    "way1": _way1_actor_body,
+}
+
+
+def make_actor_node(model: Any = None):
+    """actor 节点工厂（05 票终裁 7）。
+
+    - 每轮派生 cfg=derive_actor_config(build_way, guidance_mode)——仅用于
+      身体选择 `_ACTOR_BODIES.get(way, way1 身体)`，不持久化不写 state
+    - model=None：写 round_end(05 骨架通告) 即返，不调模型不产 AIMessage
+      （CLI 无真模型时主环 inert 不挂死；真模型票接入后闭合 verifier 环）
+    - 有模型：system=assembled_context["system"] + actor_messages 历史转 dict
+      调 model.complete(role=actor)；产出 AIMessage 追加 actor_messages；
+      todos 按"完成：{content}"精确子串勾选；round_output=模型全文
+    """
+
+    def actor_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if model is None:
+            return _round_end(_ACTOR_SKELETON_NOTICE, state)
+
+        cfg = derive_actor_config(state.get("build_way"), state.get("guidance_mode"))
+        body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
+        text = body(state, config, model)
+        new_todos = _check_todos(state.get("todos") or [], text)
+        ai_message = AIMessage(content=text)
+        # Q53=b：节点函数末尾、返回前显式调用提炼函数写 round_summary
+        round_summary = distill_round(
+            [*(state.get("actor_messages") or []), ai_message]
+        )
+        return {
+            "actor_messages": [ai_message],
+            "todos": new_todos,
+            "round_summary": round_summary,
+            **_round_end(text, {**state, "todos": new_todos}),
+        }
+
+    return actor_node
+
+
+_TASK_COMPLETE_RE = re.compile(r"task_complete:\s*(true|false)", re.IGNORECASE)
+
+
+def _latest_ai_text(state: Mapping[str, Any]) -> str:
+    for msg in reversed(list(state.get("actor_messages") or [])):
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str):
+                return content
+    return ""
+
+
+def make_verifier_node(model: Any = None):
+    """verifier 节点工厂（05 票终裁 4）。
+
+    - 纯代码：todos_all_completed 扫描（空表→False 防御）写入
+    - LLM：prompt=任务简报+todo 三态板+最后一条 AIMessage 全文，要求输出
+      一行 "task_complete: true/false"；role=verifier；解析 re.search
+      匹配 true→True，其余/无匹配→False（fail-closed）
+    - 写 task_complete + is_docs_finished（05：全方式=task_complete，
+      way2-4 docs 语义 06/07 接管）
+    - 计数自增：todos_all_completed and not task_complete → main_loop_count+1
+      （节点写，条件边 _after_verifier 纯读）
+    - model=None：task_complete=False（fail-closed）+扫描照常+计数照常
+      （单元测试用；图内不可达——model=None 时 actor→END 直连跳过 verifier）
+    """
+
+    def verifier_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        todos = state.get("todos") or []
+        todos_all_completed = _todos_all_completed(todos)
+
+        if model is None:
+            task_complete = False
+        else:
+            prompt = (
+                f"任务简报：{state.get('task_brief') or ''}\n"
+                f"todo 三态板：\n" + "\n".join(_todo_board(state))
+                + ("\n" if _todo_board(state) else "")
+                + f"最后一条 AI 回复：{_latest_ai_text(state)}\n"
+                "请判断任务是否完成。输出一行：task_complete: true 或 task_complete: false"
+            )
+            result = model.complete(
+                [{"role": "user", "content": prompt}],
+                role=Role.VERIFIER.value,
+                thread_id=_thread_id_from(config),
+            )
+            match = _TASK_COMPLETE_RE.search(str(result.text))
+            task_complete = bool(match and match.group(1).lower() == "true")
+
+        updates: dict[str, Any] = {
+            "todos_all_completed": todos_all_completed,
+            "task_complete": task_complete,
+            "is_docs_finished": task_complete,  # 05：全方式=task_complete
+        }
+        if todos_all_completed and not task_complete:
+            updates["main_loop_count"] = int(state.get("main_loop_count") or 0) + 1
+        return updates
+
+    return verifier_node
+
+
+def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。"""
+    todos = state.get("todos") or []
+    done = sum(
+        1
+        for item in todos
+        if isinstance(item, dict) and item.get("status") == "completed"
+    )
+    count = int(state.get("main_loop_count") or 0)
+    payload = validate_payload(
+        TurnEndReason.LOOP_EXHAUSTED,
+        {
+            "scene": f"主环计数 {count}；todos {done}/{len(todos)} 完成",
+            "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
+        },
+    )
+    return {
+        "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
+        "turn_end_payload": payload,
+    }

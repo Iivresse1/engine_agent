@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> None:
     thread_id = _load_or_new_thread(_session_path(state_path), fresh=args.new_session)
 
     with sqlite_checkpointer(state_path) as checkpointer:
+        # TODO（真模型票）：MeteredModel(model, TokenLedger(--state 同目录
+        # ledger.json)) 包装后传入——05 骨架 CLI 无真模型，主环 inert。
         app = build_graph(checkpointer=checkpointer)
         ReplHost(app, io, thread_id).run()
 
