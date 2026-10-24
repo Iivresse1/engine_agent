@@ -118,6 +118,7 @@ def test_dashboard_fields_cover_spec_contract():
         "final_check_loop_count",
         "demo_phase",
         "round_summary",
+        "round_count",
         "notes_version",
         "guidance_read_version",
         "current_scope",

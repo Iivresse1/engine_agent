@@ -19,6 +19,7 @@ from project_agent.onboarding import (
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
+from project_agent.shared_docs import SharedDocs
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -425,6 +426,15 @@ def _check_todos(todos: Any, response_text: str) -> list[Any]:
 
 _ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产出。"
 
+# 06：Notepad 指令分隔符——响应含 "记录：{note}" 子串即逐条入 Notepad
+_NOTE_MARKER = "记录："
+
+
+def _parse_notes(text: str) -> list[str]:
+    """「记录：{note}」指令解析：str.split(_NOTE_MARKER) 后取非空段，
+    段尾空白 strip；无→零条（单层 split——note 内再含分隔符不递归拆分）。"""
+    return [segment.strip() for segment in text.split(_NOTE_MARKER)[1:] if segment.strip()]
+
 
 def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
     """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
@@ -457,16 +467,26 @@ _ACTOR_BODIES: dict[str, Any] = {
 }
 
 
-def make_actor_node(model: Any = None):
-    """actor 节点工厂（05 票终裁 7）。
+def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None):
+    """actor 节点工厂（05 票终裁 7；06 票扩 shared_docs）。
 
     - 每轮派生 cfg=derive_actor_config(build_way, guidance_mode)——仅用于
       身体选择 `_ACTOR_BODIES.get(way, way1 身体)`，不持久化不写 state
     - model=None：写 round_end(05 骨架通告) 即返，不调模型不产 AIMessage
       （CLI 无真模型时主环 inert 不挂死；真模型票接入后闭合 verifier 环）
+      ——即便传 shared_docs 亦然（有模型才有落盘）
     - 有模型：system=assembled_context["system"] + actor_messages 历史转 dict
       调 model.complete(role=actor)；产出 AIMessage 追加 actor_messages；
       todos 按"完成：{content}"精确子串勾选；round_output=模型全文
+    - 06（有 shared_docs 且有模型，产 AIMessage 后）：
+      ① round_count=(state round_count or 0)+1 写仪表盘
+      ② shared_docs.append_round_entry(round_count, 模型全文)——每轮生成物
+        带【R#】（BUILD_LOG 连续编号溯源：重规划后继续累加）
+      ③ 响应含 "记录：{note}" 子串→逐条 notepad_add +
+        notes_version=旧+写入条数（单调自增）
+      ④ round_summary/turn_end 照旧（round_end 板用勾选后 todos）
+    - shared_docs=None 或 model=None：行为与 05 完全一致（不落盘——既有
+      421 测试零改动，硬约束）
     """
 
     def actor_node(
@@ -484,12 +504,25 @@ def make_actor_node(model: Any = None):
         round_summary = distill_round(
             [*(state.get("actor_messages") or []), ai_message]
         )
-        return {
+        updates: dict[str, Any] = {
             "actor_messages": [ai_message],
             "todos": new_todos,
             "round_summary": round_summary,
-            **_round_end(text, {**state, "todos": new_todos}),
         }
+        if shared_docs is not None:
+            # ① 每产出一轮 +1（首个工作轮=【R1】；跨 invoke 持续靠 checkpointer）
+            round_count = int(state.get("round_count") or 0) + 1
+            # ② 每轮生成物落盘带【R#】
+            shared_docs.append_round_entry(round_count, text)
+            updates["round_count"] = round_count
+            # ③ Notepad 指令解析：逐条入 Notepad + notes_version 单调自增
+            notes = _parse_notes(text)
+            for note in notes:
+                shared_docs.notepad_add(round_count, note)
+            updates["notes_version"] = int(state.get("notes_version") or 0) + len(notes)
+        # ④ round_end 板用勾选后 todos（05 既有）
+        updates.update(_round_end(text, {**state, "todos": new_todos}))
+        return updates
 
     return actor_node
 
