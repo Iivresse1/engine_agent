@@ -65,7 +65,12 @@ def build_graph(
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLANNER, planner_node)
-    graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
+    # 07：assembler 传 shared_docs（way4 DocScaffold 框架先行说明行）；
+    # 节点签名 (state, shared_docs=None)——三参既有调用零改动。
+    graph.add_node(
+        CONTEXT_ASSEMBLER,
+        lambda state: context_assembler_node(state, shared_docs=shared_docs),
+    )
     graph.add_node(ACTOR, make_actor_node(model, shared_docs=shared_docs))
     graph.add_node(VERIFIER, make_verifier_node(model))
     graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)

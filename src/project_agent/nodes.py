@@ -361,24 +361,53 @@ def _pending_count(todos: Any) -> int:
     )
 
 
-def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
+_SCAFFOLD_HINT = (
+    "\n构建方式为完整文档：先以占位框架落盘各交付物（每份文档标题+空节），随后逐轮 grilling 填充。"
+)
+
+
+def context_assembler_node(
+    state: Mapping[str, Any],
+    shared_docs: Optional[SharedDocs] = None,
+) -> dict[str, Any]:
     """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
 
     读 current_scope / todos / guidance_mode / build_way；不写任何消息。
+
+    07 终裁 C（DocScaffold）：shared_docs 非 None 且 build_way=="way4" 且
+    工作区无交付物框架（首个文档不存在）→ system 末尾追加框架先行说明行；
+    框架已存在则不追加（首轮落框架后自然消失）。
     """
     todos = state.get("todos") or []
+    system = (
+        f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+        f"指引 {state.get('guidance_mode') or ''}，"
+        f"待办 {_pending_count(todos)} 项"
+    )
+    if (
+        state.get("build_way") == "way4"
+        and shared_docs is not None
+        and not _scaffold_exists(shared_docs)
+    ):
+        system = system + _SCAFFOLD_HINT
     updates: dict[str, Any] = {
         "assembled_context": {
-            "system": (
-                f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
-                f"指引 {state.get('guidance_mode') or ''}，"
-                f"待办 {_pending_count(todos)} 项"
-            ),
+            "system": system,
             "todo_board": _todo_board(state),
             "scope": str(state.get("current_scope") or "main"),
         }
     }
     return updates
+
+
+def _scaffold_exists(shared_docs: SharedDocs) -> bool:
+    """工作区是否已有交付物框架：DELIVERABLE_SETS['way4'] 首个文档存在即视为已落。"""
+    from project_agent.deliverables import DELIVERABLE_SETS
+
+    for name in DELIVERABLE_SETS["way4"]:
+        if (shared_docs.root / name).exists():
+            return True
+    return False
 
 
 def _thread_id_from(config: Any) -> str:
@@ -500,12 +529,27 @@ def _grilling_model_messages(state: Mapping[str, Any]) -> list[dict[str, str]]:
     return messages
 
 
-def _grilling_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+def _grilling_body(
+    state: Mapping[str, Any],
+    config: Any,
+    model: Any,
+    shared_docs: Optional[SharedDocs] = None,
+) -> str:
     """way2-4 身体（07 终裁 B）：与 way1 同构的最小 grilling 驱动。
 
     差异仅在 prompt 末尾追加一行澄清指令；模型响应照旧走 todos 勾选/
     "记录："桥/【R#】落盘/round_summary 全套（由 actor_node 公共工序承担）。
+
+    way4 框架先行（终裁 C）：首轮（state round_count 未设 → 本轮即 1）且
+    shared_docs 非 None → 先为 DELIVERABLE_SETS["way4"] 每份文档写占位框架
+    （f"# {stem}\\n\\n（待填）\\n"），文件已存在则跳过（幂等），再走模型调用。
     """
+    if (
+        state.get("build_way") == "way4"
+        and shared_docs is not None
+        and not int(state.get("round_count") or 0)  # 首轮：round_count 未设/0
+    ):
+        _lay_scaffold(shared_docs)
     messages = _grilling_model_messages(state)
     result = model.complete(
         messages,
@@ -513,6 +557,21 @@ def _grilling_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
         thread_id=_thread_id_from(config),
     )
     return str(result.text)
+
+
+def _lay_scaffold(shared_docs: SharedDocs) -> None:
+    """占位框架落盘：每份 way4 交付物 f"# {stem}\\n\\n（待填）\\n"；已存在跳过。"""
+    from pathlib import Path as _Path
+
+    from project_agent.deliverables import DELIVERABLE_SETS
+
+    for name in DELIVERABLE_SETS["way4"]:
+        target = shared_docs.root / name
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stem = _Path(name).stem
+        target.write_text(f"# {stem}\n\n（待填）\n", encoding="utf-8")
 
 
 def distill_round(messages: Any) -> str:
@@ -567,7 +626,11 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
 
         cfg = derive_actor_config(state.get("build_way"), state.get("guidance_mode"))
         body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
-        text = body(state, config, model)
+        if body is _grilling_body:
+            # 07 终裁 B：grilling 身体吃 shared_docs（way4 首轮框架先行落盘）
+            text = body(state, config, model, shared_docs)
+        else:
+            text = body(state, config, model)
         new_todos = _check_todos(state.get("todos") or [], text)
         ai_message = AIMessage(content=text)
         # Q53=b：节点函数末尾、返回前显式调用提炼函数写 round_summary
