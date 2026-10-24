@@ -34,6 +34,7 @@ from .static_checker import (
     StaticChecker,
     parse_command,
     program_of,
+    strip_wrappers,
 )
 
 _POLICY_JSON = Path(__file__).with_name("shell_policy.json")
@@ -160,10 +161,14 @@ class ShellPolicy:
         return self._apply_interrupt(miss, was_allow=False)
 
     def _apply_interrupt(self, decision: Decision, *, was_allow: bool) -> Decision:
-        """interrupt 旋钮：human 全部非 deny → ask；yolo 全部非 deny → allow。"""
+        """interrupt 旋钮：human 全部非 deny → ask；yolo 全部非 deny → allow。
+
+        deny 原样穿透（静态/白名单 deny 全档生效）；yolo 下已是 allow 的段
+        保留原 rule_id（白名单命中记录），其余非 deny 段改判 allow(interrupt.yolo)。
+        """
+        if decision.action is DecisionAction.DENY:
+            return decision
         if self._knobs.interrupt is Interrupt.HUMAN:
-            if decision.action is DecisionAction.DENY:
-                return decision
             return Decision(
                 action=DecisionAction.ASK,
                 rule_id="interrupt.human",
@@ -172,7 +177,7 @@ class ShellPolicy:
                 segment=decision.segment,
             )
         if self._knobs.interrupt is Interrupt.YOLO:
-            if decision.action is DecisionAction.DENY:
+            if decision.action is DecisionAction.ALLOW:
                 return decision
             return Decision(
                 action=DecisionAction.ALLOW,
@@ -182,27 +187,24 @@ class ShellPolicy:
                 segment=decision.segment,
             )
         # ai_review：allow 命中 → allow；ask 命中或未命中 → ask
-        if was_allow and decision.action is DecisionAction.ALLOW:
+        if decision.action is DecisionAction.ALLOW:
             return decision
-        if decision.action is DecisionAction.DENY:
-            return decision
-        return Decision(
-            action=DecisionAction.ASK,
-            rule_id=decision.rule_id if decision.rule_id.startswith(("whitelist.", "boundary.")) else "interrupt.ai_review",
-            reason=decision.reason if decision.rule_id.startswith(("whitelist.", "boundary.")) else "AI 审核档：ask 命中或未命中升级审核",
-            command=decision.command,
-            segment=decision.segment,
-        )
+        return decision
 
     def _match_allow(self, seg: Segment) -> Decision | None:
-        """allow 节匹配：先 write 节后 read 节（write 更宽，命中即用）。"""
+        """allow 节匹配：先 write 节后 read 节（write 更宽，命中即用）。
+
+        匹配前剥壳（前导 env 赋值 + timeout/nice/nohup/stdbuf/command/builtin/
+        noglob/env 及其 flag/数字参数），以剥壳后文本对模式。
+        """
+        stripped = strip_wrappers(seg.text)
         for section, rule_id in (
             ("allow_write", "whitelist.allow_write"),
             ("allow_read", "whitelist.allow_read"),
         ):
             patterns: tuple[str, ...] = getattr(self._rules, section)
             for pattern in patterns:
-                if _matches(pattern, seg.text):
+                if _matches(pattern, stripped):
                     return Decision(
                         action=DecisionAction.ALLOW,
                         rule_id=rule_id,
@@ -213,8 +215,9 @@ class ShellPolicy:
         return None
 
     def _match_ask(self, seg: Segment) -> Decision | None:
+        stripped = strip_wrappers(seg.text)
         for pattern in self._rules.ask:
-            if _matches(pattern, seg.text):
+            if _matches(pattern, stripped):
                 return Decision(
                     action=DecisionAction.ASK,
                     rule_id="whitelist.ask",
@@ -225,8 +228,9 @@ class ShellPolicy:
         return None
 
     def _match_deny(self, seg: Segment) -> Decision | None:
+        stripped = strip_wrappers(seg.text)
         for pattern in self._rules.deny:
-            if _matches(pattern, seg.text):
+            if _matches(pattern, stripped):
                 return Decision(
                     action=DecisionAction.DENY,
                     rule_id="whitelist.deny",
@@ -247,13 +251,11 @@ class ShellPolicy:
 def _matches(pattern: str, text: str) -> bool:
     """白名单通配匹配：* → 任意文本（含空格）；尾缀 " *" 还匹配裸命令。"""
     if "*" in pattern:
-        prefix = pattern.split("*", 1)[0]
-        if not re.match(r"^" + re.escape(prefix) + r".*$", text, re.DOTALL):
-            return False
         bare = pattern.endswith(" *")
         if bare and text == pattern[:-2]:
             return True
-        return True
+        prefix = pattern.split("*", 1)[0]
+        return re.match(r"^" + re.escape(prefix) + r".*$", text, re.DOTALL) is not None
     return pattern == text
 
 
