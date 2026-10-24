@@ -19,7 +19,13 @@ from project_agent.onboarding import (
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
-from project_agent.shared_docs import SharedDocs
+from project_agent.scopes import rule_for, tools_for_scope
+from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
+from project_agent.skills import recommendation_reason, skill_heads
+from project_agent.tools.registry import ALL_TOOLS
+
+# 已注册技能名集合（触发判定的命中表）
+_SKILL_NAMES = frozenset(head.name for head in skill_heads())
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -527,38 +533,83 @@ _SCAFFOLD_HINT = (
 )
 
 
-def context_assembler_node(
-    state: Mapping[str, Any],
+def make_assembler_node(
     shared_docs: Optional[SharedDocs] = None,
-) -> dict[str, Any]:
-    """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
+):
+    """context_assembler 节点工厂（05 终裁 6 → 09 工厂化+升级；07 织入脚手架提示）。
 
-    读 current_scope / todos / guidance_mode / build_way；不写任何消息。
-
+    写 assembled_context（每轮整覆写，state key 无 reducer）；不写任何消息。
+    09 组装五段：
+    - system = base + "\\n" + 作用域规则行 + "\\n" + todo 板渲染 + "\\n"
+      + notepad 切片块 + "\\n" + 技能头块
+    - 新键 tools_subset = sorted(tools_for_scope(current_scope, 全矩阵))
+      （scope 交集——"送"半段的消费材料）
+    - 新键 skills = [name：one_liner]（技能头，懒加载——只有名字+一句话）
+    - shared_docs 非 None 时读 notepad 切片（验收 6）：guidance_gate(
+      notes_version, guidance_read_version) 真 → 追加【Notepad】块（全部
+      条目行【R#】- content）+ 写 guidance_read_version 对齐（节点写，下轮
+      差=0 不再注入——stale-read 杜绝）；门假 → 零块零写。
+    - shared_docs=None → 零 Notepad 块零版本写（既有行为零回归）。
     07 终裁 C（DocScaffold）：shared_docs 非 None 且 build_way=="way4" 且
     工作区无交付物框架（首个文档不存在）→ system 末尾追加框架先行说明行；
     框架已存在则不追加（首轮落框架后自然消失）。
     """
-    todos = state.get("todos") or []
-    system = (
-        f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
-        f"指引 {state.get('guidance_mode') or ''}，"
-        f"待办 {_pending_count(todos)} 项"
-    )
-    if (
-        state.get("build_way") == "way4"
-        and shared_docs is not None
-        and not _scaffold_exists(shared_docs)
-    ):
-        system = system + _SCAFFOLD_HINT
-    updates: dict[str, Any] = {
-        "assembled_context": {
-            "system": system,
-            "todo_board": _todo_board(state),
-            "scope": str(state.get("current_scope") or "main"),
+
+    def context_assembler_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        todos = state.get("todos") or []
+        current_scope = str(state.get("current_scope") or "main")
+
+        # —— 装（五段 system 组装）——
+        base = (
+            f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+            f"指引 {state.get('guidance_mode') or ''}，"
+            f"待办 {_pending_count(todos)} 项"
+        )
+        scope_line = f"【作用域】{rule_for(current_scope)}"
+        board_lines = list(_todo_board(state))
+        sections = [base, scope_line, "\n".join(board_lines)]
+
+        updates: dict[str, Any] = {}
+
+        # notepad 切片块（版本门，验收 6）——assembler 无句柄时零块零写
+        if shared_docs is not None:
+            notes_version = int(state.get("notes_version") or 0)
+            guidance_read_version = int(state.get("guidance_read_version") or 0)
+            if guidance_gate(notes_version, guidance_read_version):
+                entries = shared_docs.notepad_entries()
+                if entries:
+                    sections.append("【Notepad】\n" + "\n".join(
+                        f"【R{no}】- {content}" for no, content in entries
+                    ))
+                # 节点写对齐：下轮差=0 不再注入（stale-read 杜绝）
+                updates["guidance_read_version"] = align_guidance_read(notes_version)
+
+        # 技能头块：只注名字+一句话（懒加载——全文触发时才读入）
+        skill_lines = [f"{h.name}：{h.one_liner}" for h in skill_heads()]
+        sections.append("【技能】\n" + "\n".join(skill_lines))
+
+        # 07：way4 DocScaffold 框架先行说明（无框架时才追加）
+        if (
+            state.get("build_way") == "way4"
+            and shared_docs is not None
+            and not _scaffold_exists(shared_docs)
+        ):
+            sections.append(_SCAFFOLD_HINT.strip())
+
+        updates["assembled_context"] = {
+            "system": "\n".join(sections),
+            "todo_board": board_lines,
+            "scope": current_scope,
+            "tools_subset": sorted(
+                tools_for_scope(current_scope, frozenset(ALL_TOOLS))
+            ),
+            "skills": skill_lines,
         }
-    }
-    return updates
+        return updates
+
+    return context_assembler_node
 
 
 def _scaffold_exists(shared_docs: SharedDocs) -> bool:
@@ -583,11 +634,18 @@ def _thread_id_from(config: Any) -> str:
 def _actor_model_messages(
     state: Mapping[str, Any]
 ) -> list[dict[str, str]]:
-    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。"""
+    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。
+
+    09 工具子集送达：system 尾行注入 "【可用工具】a、b、c"（子集=assembler
+    装的 scope 交集——终裁：不用 langchain middleware，1.x 版本敏感，改在
+    actor 的 model 调用前注入 system 尾行）。
+    """
     context = state.get("assembled_context") or {}
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": str(context.get("system") or "")}
-    ]
+    system = str(context.get("system") or "")
+    tools_subset = [str(tool) for tool in context.get("tools_subset") or ()]
+    if tools_subset:
+        system += f"\n【可用工具】{'、'.join(tools_subset)}"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     for msg in state.get("actor_messages") or []:
         if isinstance(msg, HumanMessage):
             messages.append({"role": "user", "content": str(msg.content)})
@@ -618,6 +676,10 @@ _ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产
 
 # 06：Notepad 指令分隔符——响应含 "记录：{note}" 子串即逐条入 Notepad
 _NOTE_MARKER = "记录："
+
+# 09：技能懒加载触发/推荐理由模式（"送"半段轻桩）
+_SKILL_MARKER = "技能："
+_RECOMMEND_RE = re.compile(r"推荐技能：([^\n（(]+)[（(]([^）)]*)[）)]")
 
 
 def _parse_notes(text: str) -> list[str]:
@@ -663,6 +725,37 @@ def _apply_writes(
         if not shared_docs.write_deliverable(filename, content, way=way):
             rejected.append(filename)
     return rejected
+
+
+def _triggered_skill(text: str) -> str | None:
+    """技能懒加载触发：响应含 "技能：{name}" 子串 → name（首个空白分词）
+    命中已注册技能头 → 返回 name（skill_body 全文读出即触发——不进模型
+    调用）；无命中→None。"""
+    for segment in text.split(_SKILL_MARKER)[1:]:
+        tokens = segment.strip().split()
+        if tokens and tokens[0] in _SKILL_NAMES:
+            return tokens[0]
+    return None
+
+
+def _apply_recommendation_reason(text: str) -> str:
+    """推荐理由 ≤20 字代码硬约束：响应含 "推荐技能：{name}（{reason}）" 模式
+    → reason 过 recommendation_reason 截断（与 02 build_ways 同法）。"""
+    def _clip(match: re.Match[str]) -> str:
+        return f"推荐技能：{match.group(1)}（{recommendation_reason(match.group(2))}）"
+
+    return _RECOMMEND_RE.sub(_clip, text)
+
+
+def _delivery_output(text: str, shared_docs: Any) -> str:
+    """actor 送达后置：技能懒加载触发提示（shared_docs 可用才记；语义桩——
+    skill_body(name) 读出即触发，不进模型调用）。推荐理由截断与之独立叠加。"""
+    out = _apply_recommendation_reason(text)
+    if shared_docs is not None:
+        name = _triggered_skill(text)
+        if name is not None:
+            out += f"（技能 {name} 已全文载入）"
+    return out
 
 
 def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
@@ -775,6 +868,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
       ③ 响应含 "记录：{note}" 子串→逐条 notepad_add +
         notes_version=旧+写入条数（单调自增）
       ④ round_summary/turn_end 照旧（round_end 板用勾选后 todos）
+    - 09 送达扩展：round_output 过 _delivery_output——推荐理由模式截断
+      （≤20 字硬约束）+ shared_docs 可用且技能命中时记 round_end 提示
+      "技能 {name} 已全文载入"（懒加载触发桩；AIMessage/落盘/round_summary
+      均保持模型原文——提示只进断点 payload）
     - shared_docs=None 或 model=None：行为与 05 完全一致（不落盘——既有
       421 测试零改动，硬约束）
     """
@@ -820,10 +917,11 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
                 rejected_writes = _apply_writes(shared_docs, cfg["build_way"], text)
         else:
             rejected_writes = []
-        # ④ round_end 板用勾选后 todos（05 既有）
-        round_text = text
+        # ④ round_end 板用勾选后 todos（05 既有）；round_output 过 09 送达
+        # 后置（推荐理由截断 + 技能懒加载触发提示）+ 07 白名单拒绝提示
+        round_text = _delivery_output(text, shared_docs)
         if rejected_writes:
-            round_text = f"{text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
+            round_text = f"{round_text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
         updates.update(_round_end(round_text, {**state, "todos": new_todos}))
         return updates
 

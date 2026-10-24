@@ -20,7 +20,7 @@ from project_agent.deliverables import DELIVERABLE_SETS
 from project_agent.graph import build_graph
 from project_agent.nodes import (
     _grilling_body,
-    context_assembler_node,
+    make_assembler_node,
     make_actor_node,
 )
 from project_agent.shared_docs import SharedDocs
@@ -66,14 +66,20 @@ def _scaffold_text(path_rel: str) -> str:
 
 
 def test_assembler_way4_without_scaffold_appends_framework_line(tmp_path):
-    """way4 且首个交付物不存在 → system 末尾追加框架先行说明行。"""
+    """way4 且首个交付物不存在 → system 末尾追加框架先行说明行（工厂形态）。"""
     docs = SharedDocs(tmp_path)
-    updates = context_assembler_node(
-        {**_state("way4", WAY4_TODOS), "shared_docs_root": tmp_path}
-    )
-    # 直接验证：无根注入路径（节点纯 state）——通过 graph 集成测。
-    # 单元级：way4 且 shared_docs root 的 assembler 由图级验证（下条）。
-    assert updates["assembled_context"]["system"]
+    node = make_assembler_node(shared_docs=docs)
+    updates = node(_state("way4", WAY4_TODOS))
+    assert SCAFFOLD_SUFFIX.strip() in updates["assembled_context"]["system"]
+
+
+def test_assembler_way4_scaffold_exists_no_append(tmp_path):
+    """框架已存在 → 不追加（首轮落框架后自然消失）。"""
+    docs = SharedDocs(tmp_path)
+    (tmp_path / "README.md").write_text("# README\n\n已有\n", encoding="utf-8")
+    node = make_assembler_node(shared_docs=docs)
+    updates = node(_state("way4", WAY4_TODOS))
+    assert SCAFFOLD_SUFFIX.strip() not in updates["assembled_context"]["system"]
 
 
 def test_graph_way4_first_round_lays_scaffold(tmp_path: Path):

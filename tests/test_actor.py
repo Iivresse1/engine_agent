@@ -397,3 +397,107 @@ def test_actor_note_parsing_skips_empty_segments(tmp_path):
         _cfg(),
     )
     assert docs.notepad_entries() == []
+
+
+# —— 09：actor 送达扩展（工具子集尾行 + 技能懒加载触发桩 + 推荐理由截断桩）——
+
+
+def _assembled_with_tools(todos: list, tools: list[str]) -> dict:
+    ctx = _assembled(todos)
+    ctx["tools_subset"] = tools
+    return ctx
+
+
+def test_actor_appends_tools_subset_line_to_system():
+    """工具子集送达：system 尾行 "【可用工具】a、b、c"（子集=assembler 装的交集）。"""
+    model = ScriptedModel(["回复"])
+    node = make_actor_node(model)
+    state = {
+        "todos": TWO_PENDING,
+        "assembled_context": _assembled_with_tools(
+            TWO_PENDING, ["FileEdit", "FileRead", "Glob"]
+        ),
+        "actor_messages": [],
+    }
+    node(state, _cfg())
+    system = model.calls[0]["messages"][0]["content"]
+    assert system.endswith("【可用工具】FileEdit、FileRead、Glob")
+    assert system.startswith("你是构建 agent")
+
+
+def test_actor_empty_tools_subset_leaves_system_untouched():
+    """子集空/缺键 → system 照旧（零尾行）。"""
+    model = ScriptedModel(["回复"])
+    node = make_actor_node(model)
+    node(
+        {
+            "todos": TWO_PENDING,
+            "assembled_context": _assembled(TWO_PENDING),  # 无 tools_subset 键
+            "actor_messages": [],
+        },
+        _cfg(),
+    )
+    assert model.calls[0]["messages"][0]["content"] == "你是构建 agent。当前方式 way1，指引 off，待办 2 项"
+
+
+def test_actor_skill_trigger_round_end_hint(tmp_path):
+    """技能懒加载触发桩：响应含 "技能：tdd" → round_end 提示 "技能 tdd 已全文载入"
+    （skill_body 读出即触发——不进模型调用）。AIMessage/落盘/round_summary 保持模型原文。"""
+    docs = SharedDocs(tmp_path)
+    model = ScriptedModel(["本轮采用 技能：tdd 推进"])
+    node = make_actor_node(model, shared_docs=docs)
+    updates = node(
+        {"todos": TWO_PENDING, "assembled_context": _assembled(TWO_PENDING), "actor_messages": []},
+        _cfg(),
+    )
+    out = updates["turn_end_payload"]["round_output"]
+    assert out.startswith("本轮采用 技能：tdd 推进")
+    assert "技能 tdd 已全文载入" in out
+    # 模型调用只有一次（触发不进模型调用）
+    assert len(model.calls) == 1
+    # AIMessage 与落盘保持模型原文
+    assert updates["actor_messages"] == [AIMessage(content="本轮采用 技能：tdd 推进")]
+    assert docs.read_rounds() == [(1, "【R1】本轮采用 技能：tdd 推进")]
+    assert updates["round_summary"] == "本轮采用 技能：tdd 推进"
+
+
+def test_actor_skill_trigger_ignored_without_shared_docs():
+    """无 shared_docs → 零提示（round_output=模型全文）。"""
+    model = ScriptedModel(["用 技能：tdd 做"])
+    node = make_actor_node(model)  # shared_docs 缺省 None
+    updates = node(
+        {"todos": TWO_PENDING, "assembled_context": _assembled(TWO_PENDING), "actor_messages": []},
+        _cfg(),
+    )
+    assert updates["turn_end_payload"]["round_output"] == "用 技能：tdd 做"
+
+
+def test_actor_skill_trigger_unknown_skill_ignored(tmp_path):
+    """无 name 命中 → 忽略（零提示）。"""
+    docs = SharedDocs(tmp_path)
+    model = ScriptedModel(["聊聊 技能：nosuch 的事"])
+    node = make_actor_node(model, shared_docs=docs)
+    updates = node(
+        {"todos": TWO_PENDING, "assembled_context": _assembled(TWO_PENDING), "actor_messages": []},
+        _cfg(),
+    )
+    assert updates["turn_end_payload"]["round_output"] == "聊聊 技能：nosuch 的事"
+
+
+def test_actor_recommendation_reason_truncated_to_20(tmp_path):
+    """推荐理由截断桩：响应含 "推荐技能：{name}（{reason}）" → reason 过
+    recommendation_reason（30 字→20）；不误触发普通技能载入提示。"""
+    docs = SharedDocs(tmp_path)
+    reason_30 = "一二三四五六七八九十" * 3
+    model = ScriptedModel([f"我的建议是 推荐技能：grilling（{reason_30}） 供参考"])
+    node = make_actor_node(model, shared_docs=docs)
+    updates = node(
+        {"todos": TWO_PENDING, "assembled_context": _assembled(TWO_PENDING), "actor_messages": []},
+        _cfg(),
+    )
+    out = updates["turn_end_payload"]["round_output"]
+    assert f"推荐技能：grilling（{reason_30[:20]}）" in out
+    assert reason_30 not in out  # 全文 30 字不再出现
+    # 推荐模式不误触发 "技能 grilling 已全文载入"
+    assert "已全文载入" not in out
+
