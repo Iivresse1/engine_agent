@@ -4,6 +4,8 @@
 05 票：行 3——todos 空→planner；行 4——todos 未清→context_assembler（主环）；
 行 5——todos 清且 task_complete 假→planner（耗尽恢复：planner 见 count>=5 清零）；
 行 6——任一环计数>=5→loop_exhausted；行 7——task_complete 真→END（05 放行）。
+07 票：新行插在行 3 前——way4 且 selected_proposal 未设且 todos 未设 →
+PROPOSALS（三方案并行先于计划）。
 行序即优先级；guidance_trigger 相位由 build_ways 条件边接入（非 START 路由）。
 """
 
@@ -16,6 +18,7 @@ from langgraph.graph import END
 ASK_TASKS = "ask_tasks"
 BUILD_WAYS = "build_ways"
 GUIDANCE_TRIGGER = "guidance_trigger"
+PROPOSALS = "proposals"
 PLANNER = "planner"
 CONTEXT_ASSEMBLER = "context_assembler"
 ACTOR = "actor"
@@ -25,6 +28,7 @@ LOOP_EXHAUSTED = "loop_exhausted"
 END_MAP: dict[str, str] = {
     ASK_TASKS: ASK_TASKS,
     BUILD_WAYS: BUILD_WAYS,
+    PROPOSALS: PROPOSALS,
     PLANNER: PLANNER,
     CONTEXT_ASSEMBLER: CONTEXT_ASSEMBLER,
     LOOP_EXHAUSTED: LOOP_EXHAUSTED,
@@ -42,8 +46,11 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
     ({"task_brief": "一个想法"}, BUILD_WAYS),
     ({"task_brief": "x", "build_way": ""}, BUILD_WAYS),
     ({"task_brief": "x", "user_mode": None}, BUILD_WAYS),  # 02：01 遗留会话
+    # 07 新行（行 3 前）：way4 且 selected_proposal 未设且 todos 未设 →
+    # PROPOSALS（三方案并行先于计划）
+    ({"task_brief": "x", "build_way": "way4"}, PROPOSALS),
     # 05 行 3：todos 空（falsy）→ planner（新计划）
-    ({"task_brief": "x", "build_way": "way4"}, PLANNER),
+    ({"task_brief": "x", "build_way": "way4", "selected_proposal": 0}, PLANNER),
     # 05 行 4：todos 未清 → context_assembler（主环工作轮）
     (
         {
@@ -136,6 +143,14 @@ def entry_route(dashboard: Mapping[str, Any]) -> str:
         return ASK_TASKS
     if not dashboard.get("build_way"):
         return BUILD_WAYS
+    # 07 新行（行 3 前）：way4 方案先于计划——selected_proposal 未设且
+    # todos 未设 → PROPOSALS（三方案并行节点）
+    if (
+        dashboard.get("build_way") == "way4"
+        and dashboard.get("selected_proposal") is None
+        and not (dashboard.get("todos") or [])
+    ):
+        return PROPOSALS
     todos = dashboard.get("todos") or []
     if not todos:  # 行 3：todos 空（falsy）→ planner（新计划）
         return PLANNER

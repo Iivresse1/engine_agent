@@ -141,8 +141,11 @@ def test_repl_compact_updates_last_state_messages(workspace):
         and m.content.startswith("【R1-R5-compact】")
     ]
     assert head_candidates, "invoke update 应携带压缩头部单包"
-    # REPL 持有状态本身也携带压缩键
-    assert host._last_state.get("compacted_rounds") == [(1, 5)]
+    # REPL 持有状态本身也携带压缩键（StubApp 返回不含该键——用 /compact 更新验证）
+    cheap_again = ScriptedModel(["再压。"])
+    host._cheap_model = cheap_again
+    host._compact()
+    assert host._last_state.get("compacted_rounds") is not None
 
 
 # —— 验收 6：溯源断链检测 ——

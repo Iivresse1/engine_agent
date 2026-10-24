@@ -183,10 +183,11 @@ def test_graph_verifier_hook_fires_before_verifier_model_call(tmp_path: Path):
 
 def test_graph_assembler_hook_fires_before_assembler(tmp_path: Path):
     """assembler 挂点隔离验证：context_assembler 前便宜模型被调。"""
-    from project_agent.nodes import context_assembler_node
+    from project_agent.nodes import make_assembler_node
 
     cheap = ScriptedModel(["assembler 前压缩摘要。"])
-    wrapped = with_compression(context_assembler_node, cheap_model=cheap)
+    assembler = make_assembler_node(shared_docs=None)
+    wrapped = with_compression(assembler, cheap_model=cheap)
     seed = _seed_long_history()
     updates = wrapped(dict(seed), _cfg("t-asm"))
     assert len(cheap.calls) == 1

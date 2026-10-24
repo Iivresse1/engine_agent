@@ -31,7 +31,13 @@ from project_agent.onboarding import (
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
-from project_agent.shared_docs import SharedDocs
+from project_agent.scopes import rule_for, tools_for_scope
+from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
+from project_agent.skills import recommendation_reason, skill_heads
+from project_agent.tools.registry import ALL_TOOLS
+
+# 已注册技能名集合（触发判定的命中表）
+_SKILL_NAMES = frozenset(head.name for head in skill_heads())
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -317,6 +323,158 @@ def _static_choice() -> dict[str, Any]:
     return _choice_breakpoint(_STATIC_RECOMMENDATION, _STATIC_REASON)
 
 
+# —— 07 终裁 C：way4 三方案并行节点 ——
+
+
+_FALLBACK_PROPOSALS: list[str] = [
+    "轻量方案：默认技术栈",
+    "均衡方案：常用技术栈",
+    "完整方案：企业级技术栈",
+]
+
+# 决议关键词（匹配 proposal_set 文本；序（轻量/均衡/完整）= idx）
+_PROPOSAL_KEYWORDS: list[tuple[str, int]] = [
+    ("轻量", 0),
+    ("均衡", 1),
+    ("完整", 2),
+]
+
+
+def _parse_proposals(text: str) -> list[str]:
+    """模型输出解析：非空行且含"|"（"方案名|一句话摘要"格式）≤3 行；
+    全不符/空 → []（调用方走兜底三案）。"""
+    lines = [
+        line.strip()
+        for line in str(text).splitlines()
+        if line.strip() and "|" in line
+    ]
+    return lines[:3]
+
+
+def _proposal_breakpoint(proposal_set: list[str]) -> dict[str, Any]:
+    """choice:proposal 断点：proposal_summaries 受控形状。"""
+    payload = validate_payload(
+        TurnEndReason.CHOICE_PROPOSAL, {"proposal_summaries": list(proposal_set)}
+    )
+    return {
+        "proposal_set": list(proposal_set),
+        "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+        "turn_end_payload": payload,
+    }
+
+
+def _interpret_proposal(
+    text: str | None, proposal_set: list[str]
+) -> int | None:
+    """解释自由文本 → 方案 idx；解释不了返回 None。
+
+    优先级：序号（裸 ^[\\W_]*[1-9][\\W_]*$ / 语境 (?:第|选项|方案|方式|选)\\s*[1-9]，
+    同 02 的 _interpret 序法）→ 关键词匹配方案文本（"轻量"→0/"均衡"→1/
+    "完整"→2，含兜底案名）。
+    """
+    if not text:
+        return None
+    m = _BARE_INDEX.match(text) or _PROPOSAL_CONTEXTUAL_INDEX.search(text)
+    if m:
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(proposal_set):
+            return idx
+    for keyword, idx in _PROPOSAL_KEYWORDS:
+        if keyword in text and idx < len(proposal_set):
+            return idx
+    return None
+
+
+_PROPOSAL_CONTEXTUAL_INDEX = re.compile(r"(?:第|选项|方案|方式|选)\s*([1-9])")
+
+
+def make_proposals_node(model: Any = None):
+    """三方案并行节点工厂（07 终裁 C，way4 专属）。
+
+    - selected_proposal 已设 → {}（可重入零副作用）
+    - resolution_inputs 非空 → 解释：序号（裸/语境）→ selected_proposal=idx；
+      关键词匹配方案文本；成功 → 写 selected_proposal + 通道清空 +
+      round_end("方案已选定：{摘要}")；无匹配 → 清空 + 复用上轮 payload
+      校验后重发（零 model 调用）；payload 不可复用 → 兜底三案重发
+    - 无 pending：调 ModelClient（role=actor，thread_id 出 config）产三行方案；
+      解析失败/空 → 兜底三案；写 proposal_set + choice:proposal 断点
+    - model=None → 静态兜底三案（零调用）
+    """
+
+    def _model_proposals(state: Mapping[str, Any], config: Any) -> list[str]:
+        brief = str(state.get("task_brief") or "")
+        user_mode = str(state.get("user_mode") or "")
+        prompt = (
+            f"任务简报：{brief}\n"
+            f"用户编程基础：{user_mode}\n"
+            "请给出三套构建方案（技术栈 × 复杂度取舍维度），每行格式：方案名|一句话摘要，共三行。"
+        )
+        result = model.complete(
+            [{"role": "user", "content": prompt}],
+            role=Role.ACTOR.value,
+            thread_id=_thread_id_from(config),
+        )
+        parsed = _parse_proposals(str(result.text))
+        return parsed if parsed else list(_FALLBACK_PROPOSALS)
+
+    def _reuse_payload(state: Mapping[str, Any]) -> dict[str, Any] | None:
+        """复用上轮 turn_end_payload（校验通过才复用；同 build_ways 模式）。"""
+        last_payload = state.get("turn_end_payload")
+        if not isinstance(last_payload, Mapping):
+            return None
+        try:
+            return validate_payload(
+                TurnEndReason.CHOICE_PROPOSAL, dict(last_payload)
+            )
+        except Exception:
+            return None
+
+    def proposals_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if state.get("selected_proposal") is not None:
+            return {}
+
+        pending = state.get("resolution_inputs") or []
+        if pending:
+            text = str(pending[-1])
+            proposal_set = [
+                str(item) for item in (state.get("proposal_set") or [])
+            ]
+            idx = _interpret_proposal(text, proposal_set or list(_FALLBACK_PROPOSALS))
+            if idx is not None:
+                summary = (
+                    proposal_set[idx]
+                    if proposal_set and idx < len(proposal_set)
+                    else _FALLBACK_PROPOSALS[idx]
+                )
+                return {
+                    "selected_proposal": idx,
+                    "resolution_inputs": [],
+                    **_round_end(f"方案已选定：{summary}", state),
+                }
+            # 无匹配：清空通道 + 复用上轮 payload 重发（零 model 调用）
+            payload = _reuse_payload(state)
+            if payload is not None:
+                return {
+                    "resolution_inputs": [],
+                    "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+                    "turn_end_payload": payload,
+                }
+            return {
+                "resolution_inputs": [],
+                **_proposal_breakpoint(list(_FALLBACK_PROPOSALS)),
+            }
+
+        if model is not None:
+            proposal_set = _model_proposals(state, config)
+        else:
+            proposal_set = list(_FALLBACK_PROPOSALS)
+        return _proposal_breakpoint(proposal_set)
+
+    return proposals_node
+
+
 _LABEL_BY_WAY: dict[str, str] = {way: label for label, way in _WAY_BY_LABEL.items()}
 
 
@@ -349,9 +507,18 @@ def planner_node(state: Mapping[str, Any]) -> dict[str, Any]:
     - todos 已设 → 重规划：todos 全新 pending + main_loop_count 保留
       （旧值 >=5 → 清零开新循环：耗尽恢复路径）
     - round_end："已列出 N 项计划"（todo_board 渲染新板三态）
+    - 07 终裁 D（验收 5）：way4 且 selected_proposal 已设 → 首项改为
+      f"深化方案：{proposal_set[idx]}"（超过 40 字截断），其余项照 way4 模板；
+      其余方式照旧模板
     """
     way = str(state.get("build_way") or "")
     contents = list(_PLANNER_TEMPLATES.get(way, [])) or [_PLANNER_FALLBACK]
+    if way == "way4" and state.get("selected_proposal") is not None:
+        proposal_set = [str(item) for item in (state.get("proposal_set") or [])]
+        idx = state.get("selected_proposal")
+        if isinstance(idx, int) and 0 <= idx < len(proposal_set):
+            summary = proposal_set[idx][:40]
+            contents = [f"深化方案：{summary}", *contents[1:]]
     todos = [{"content": content, "status": "pending"} for content in contents]
     if state.get("todos"):
         count = int(state.get("main_loop_count") or 0)
@@ -373,24 +540,98 @@ def _pending_count(todos: Any) -> int:
     )
 
 
-def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
+_SCAFFOLD_HINT = (
+    "\n构建方式为完整文档：先以占位框架落盘各交付物（每份文档标题+空节），随后逐轮 grilling 填充。"
+)
 
-    读 current_scope / todos / guidance_mode / build_way；不写任何消息。
+
+def make_assembler_node(
+    shared_docs: Optional[SharedDocs] = None,
+):
+    """context_assembler 节点工厂（05 终裁 6 → 09 工厂化+升级；07 织入脚手架提示）。
+
+    写 assembled_context（每轮整覆写，state key 无 reducer）；不写任何消息。
+    09 组装五段：
+    - system = base + "\\n" + 作用域规则行 + "\\n" + todo 板渲染 + "\\n"
+      + notepad 切片块 + "\\n" + 技能头块
+    - 新键 tools_subset = sorted(tools_for_scope(current_scope, 全矩阵))
+      （scope 交集——"送"半段的消费材料）
+    - 新键 skills = [name：one_liner]（技能头，懒加载——只有名字+一句话）
+    - shared_docs 非 None 时读 notepad 切片（验收 6）：guidance_gate(
+      notes_version, guidance_read_version) 真 → 追加【Notepad】块（全部
+      条目行【R#】- content）+ 写 guidance_read_version 对齐（节点写，下轮
+      差=0 不再注入——stale-read 杜绝）；门假 → 零块零写。
+    - shared_docs=None → 零 Notepad 块零版本写（既有行为零回归）。
+    07 终裁 C（DocScaffold）：shared_docs 非 None 且 build_way=="way4" 且
+    工作区无交付物框架（首个文档不存在）→ system 末尾追加框架先行说明行；
+    框架已存在则不追加（首轮落框架后自然消失）。
     """
-    todos = state.get("todos") or []
-    updates: dict[str, Any] = {
-        "assembled_context": {
-            "system": (
-                f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
-                f"指引 {state.get('guidance_mode') or ''}，"
-                f"待办 {_pending_count(todos)} 项"
+
+    def context_assembler_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        todos = state.get("todos") or []
+        current_scope = str(state.get("current_scope") or "main")
+
+        # —— 装（五段 system 组装）——
+        base = (
+            f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+            f"指引 {state.get('guidance_mode') or ''}，"
+            f"待办 {_pending_count(todos)} 项"
+        )
+        scope_line = f"【作用域】{rule_for(current_scope)}"
+        board_lines = list(_todo_board(state))
+        sections = [base, scope_line, "\n".join(board_lines)]
+
+        updates: dict[str, Any] = {}
+
+        # notepad 切片块（版本门，验收 6）——assembler 无句柄时零块零写
+        if shared_docs is not None:
+            notes_version = int(state.get("notes_version") or 0)
+            guidance_read_version = int(state.get("guidance_read_version") or 0)
+            if guidance_gate(notes_version, guidance_read_version):
+                entries = shared_docs.notepad_entries()
+                if entries:
+                    sections.append("【Notepad】\n" + "\n".join(
+                        f"【R{no}】- {content}" for no, content in entries
+                    ))
+                # 节点写对齐：下轮差=0 不再注入（stale-read 杜绝）
+                updates["guidance_read_version"] = align_guidance_read(notes_version)
+
+        # 技能头块：只注名字+一句话（懒加载——全文触发时才读入）
+        skill_lines = [f"{h.name}：{h.one_liner}" for h in skill_heads()]
+        sections.append("【技能】\n" + "\n".join(skill_lines))
+
+        # 07：way4 DocScaffold 框架先行说明（无框架时才追加）
+        if (
+            state.get("build_way") == "way4"
+            and shared_docs is not None
+            and not _scaffold_exists(shared_docs)
+        ):
+            sections.append(_SCAFFOLD_HINT.strip())
+
+        updates["assembled_context"] = {
+            "system": "\n".join(sections),
+            "todo_board": board_lines,
+            "scope": current_scope,
+            "tools_subset": sorted(
+                tools_for_scope(current_scope, frozenset(ALL_TOOLS))
             ),
-            "todo_board": _todo_board(state),
-            "scope": str(state.get("current_scope") or "main"),
+            "skills": skill_lines,
         }
-    }
-    return updates
+        return updates
+
+    return context_assembler_node
+
+
+def _scaffold_exists(shared_docs: SharedDocs) -> bool:
+    """工作区是否已有交付物框架：DELIVERABLE_SETS['way4'] 首个文档存在即视为已落。"""
+    from project_agent.deliverables import DELIVERABLE_SETS
+
+    for name in DELIVERABLE_SETS["way4"]:
+        if (shared_docs.root / name).exists():
+            return True
+    return False
 
 
 def _thread_id_from(config: Any) -> str:
@@ -405,11 +646,18 @@ def _thread_id_from(config: Any) -> str:
 def _actor_model_messages(
     state: Mapping[str, Any]
 ) -> list[dict[str, str]]:
-    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。"""
+    """隔离红线（验收 7）：messages 只含 system + actor 私有历史——绝不掺其他角色历史。
+
+    09 工具子集送达：system 尾行注入 "【可用工具】a、b、c"（子集=assembler
+    装的 scope 交集——终裁：不用 langchain middleware，1.x 版本敏感，改在
+    actor 的 model 调用前注入 system 尾行）。
+    """
     context = state.get("assembled_context") or {}
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": str(context.get("system") or "")}
-    ]
+    system = str(context.get("system") or "")
+    tools_subset = [str(tool) for tool in context.get("tools_subset") or ()]
+    if tools_subset:
+        system += f"\n【可用工具】{'、'.join(tools_subset)}"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
     for msg in state.get("actor_messages") or []:
         if isinstance(msg, HumanMessage):
             messages.append({"role": "user", "content": str(msg.content)})
@@ -441,11 +689,85 @@ _ACTOR_SKELETON_NOTICE = "主环待真模型接入（05 骨架）：本轮无产
 # 06：Notepad 指令分隔符——响应含 "记录：{note}" 子串即逐条入 Notepad
 _NOTE_MARKER = "记录："
 
+# 09：技能懒加载触发/推荐理由模式（"送"半段轻桩）
+_SKILL_MARKER = "技能："
+_RECOMMEND_RE = re.compile(r"推荐技能：([^\n（(]+)[（(]([^）)]*)[）)]")
+
 
 def _parse_notes(text: str) -> list[str]:
     """「记录：{note}」指令解析：str.split(_NOTE_MARKER) 后取非空段，
     段尾空白 strip；无→零条（单层 split——note 内再含分隔符不递归拆分）。"""
     return [segment.strip() for segment in text.split(_NOTE_MARKER)[1:] if segment.strip()]
+
+
+# 07 票："写入：{文件名}\n{多行内容}" 指令分隔符（行首模式）
+_WRITE_MARKER = "\n写入："
+
+
+def _parse_writes(text: str) -> list[tuple[str, str]]:
+    """「写入：{文件名}\\n{内容}」解析：按 "\\n写入：" 分段（前导补 \\n——
+    响应以"写入："开头即首行行首），每段首行=文件名，其后为内容到段尾
+    （strip 尾空白）；无→零条。
+
+    行首模式：行中粘连（"先写入：…"）不误中；文件名为空或段内无换行的段不产条目。
+    """
+    results: list[tuple[str, str]] = []
+    for segment in ("\n" + text).split(_WRITE_MARKER)[1:]:
+        first_break = segment.find("\n")
+        if first_break < 0:
+            continue  # 段内无换行：无内容体，不产条目
+        filename = segment[:first_break].strip()
+        content = segment[first_break + 1 :].rstrip()
+        if not filename:
+            continue
+        results.append((filename, content))
+    return results
+
+
+def _apply_writes(
+    shared_docs: Any, way: str, text: str
+) -> list[str]:
+    """grilling 身体交付物落盘：解析"写入："指令 → 白名单落盘。
+
+    返回被拒文件名列表（不在 DELIVERABLE_SETS[way] 白名单→跳过），
+    调用方记 round_end 提示。way1 不调用本函数（不解析写入）。
+    """
+    rejected: list[str] = []
+    for filename, content in _parse_writes(text):
+        if not shared_docs.write_deliverable(filename, content, way=way):
+            rejected.append(filename)
+    return rejected
+
+
+def _triggered_skill(text: str) -> str | None:
+    """技能懒加载触发：响应含 "技能：{name}" 子串 → name（首个空白分词）
+    命中已注册技能头 → 返回 name（skill_body 全文读出即触发——不进模型
+    调用）；无命中→None。"""
+    for segment in text.split(_SKILL_MARKER)[1:]:
+        tokens = segment.strip().split()
+        if tokens and tokens[0] in _SKILL_NAMES:
+            return tokens[0]
+    return None
+
+
+def _apply_recommendation_reason(text: str) -> str:
+    """推荐理由 ≤20 字代码硬约束：响应含 "推荐技能：{name}（{reason}）" 模式
+    → reason 过 recommendation_reason 截断（与 02 build_ways 同法）。"""
+    def _clip(match: re.Match[str]) -> str:
+        return f"推荐技能：{match.group(1)}（{recommendation_reason(match.group(2))}）"
+
+    return _RECOMMEND_RE.sub(_clip, text)
+
+
+def _delivery_output(text: str, shared_docs: Any) -> str:
+    """actor 送达后置：技能懒加载触发提示（shared_docs 可用才记；语义桩——
+    skill_body(name) 读出即触发，不进模型调用）。推荐理由截断与之独立叠加。"""
+    out = _apply_recommendation_reason(text)
+    if shared_docs is not None:
+        name = _triggered_skill(text)
+        if name is not None:
+            out += f"（技能 {name} 已全文载入）"
+    return out
 
 
 def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
@@ -457,6 +779,65 @@ def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
         thread_id=_thread_id_from(config),
     )
     return str(result.text)
+
+
+# 07 终裁 B：grilling prompt 差异行——与 way1 身体唯一差异。
+_GRILLING_SUFFIX = (
+    "\n请先提出一个澄清问题以推进构建（如已完成请输出：完成：{首个未清 todo 的 content}）。"
+)
+
+
+def _grilling_model_messages(state: Mapping[str, Any]) -> list[dict[str, str]]:
+    """grilling 身体的消息形态：system 末尾追加澄清行（隔离红线照旧）。"""
+    messages = _actor_model_messages(state)
+    if messages:
+        messages[0]["content"] = str(messages[0]["content"]) + _GRILLING_SUFFIX
+    return messages
+
+
+def _grilling_body(
+    state: Mapping[str, Any],
+    config: Any,
+    model: Any,
+    shared_docs: Optional[SharedDocs] = None,
+) -> str:
+    """way2-4 身体（07 终裁 B）：与 way1 同构的最小 grilling 驱动。
+
+    差异仅在 prompt 末尾追加一行澄清指令；模型响应照旧走 todos 勾选/
+    "记录："桥/【R#】落盘/round_summary 全套（由 actor_node 公共工序承担）。
+
+    way4 框架先行（终裁 C）：首轮（state round_count 未设 → 本轮即 1）且
+    shared_docs 非 None → 先为 DELIVERABLE_SETS["way4"] 每份文档写占位框架
+    （f"# {stem}\\n\\n（待填）\\n"），文件已存在则跳过（幂等），再走模型调用。
+    """
+    if (
+        state.get("build_way") == "way4"
+        and shared_docs is not None
+        and not int(state.get("round_count") or 0)  # 首轮：round_count 未设/0
+    ):
+        _lay_scaffold(shared_docs)
+    messages = _grilling_model_messages(state)
+    result = model.complete(
+        messages,
+        role=Role.ACTOR.value,
+        thread_id=_thread_id_from(config),
+    )
+    return str(result.text)
+
+
+def _lay_scaffold(shared_docs: SharedDocs) -> None:
+    """占位框架落盘：每份 way4 交付物 f"# {stem}\\n\\n（待填）\\n"；已存在跳过。"""
+    from pathlib import Path as _Path
+
+    from project_agent.deliverables import DELIVERABLE_SETS
+
+    for name in DELIVERABLE_SETS["way4"]:
+        target = shared_docs.root / name
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stem = _Path(name).stem
+        target.write_text(f"# {stem}\n\n（待填）\n", encoding="utf-8")
 
 
 def distill_round(messages: Any) -> str:
@@ -472,10 +853,12 @@ def distill_round(messages: Any) -> str:
     return ""
 
 
-# 身体表按派生 build_way 选择（终裁 7）；way2-4 身体 07 票落位——
-# 05 中全部回落 way1 身体（骨架同构）。
+# 身体表按派生 build_way 选择（终裁 7）；07 终裁 B：way2-4 映射 grilling 身体。
 _ACTOR_BODIES: dict[str, Any] = {
     "way1": _way1_actor_body,
+    "way2": _grilling_body,
+    "way3": _grilling_body,
+    "way4": _grilling_body,
 }
 
 
@@ -497,6 +880,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
       ③ 响应含 "记录：{note}" 子串→逐条 notepad_add +
         notes_version=旧+写入条数（单调自增）
       ④ round_summary/turn_end 照旧（round_end 板用勾选后 todos）
+    - 09 送达扩展：round_output 过 _delivery_output——推荐理由模式截断
+      （≤20 字硬约束）+ shared_docs 可用且技能命中时记 round_end 提示
+      "技能 {name} 已全文载入"（懒加载触发桩；AIMessage/落盘/round_summary
+      均保持模型原文——提示只进断点 payload）
     - shared_docs=None 或 model=None：行为与 05 完全一致（不落盘——既有
       421 测试零改动，硬约束）
     """
@@ -509,7 +896,11 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
 
         cfg = derive_actor_config(state.get("build_way"), state.get("guidance_mode"))
         body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
-        text = body(state, config, model)
+        if body is _grilling_body:
+            # 07 终裁 B：grilling 身体吃 shared_docs（way4 首轮框架先行落盘）
+            text = body(state, config, model, shared_docs)
+        else:
+            text = body(state, config, model)
         new_todos = _check_todos(state.get("todos") or [], text)
         ai_message = AIMessage(content=text)
         # Q53=b：节点函数末尾、返回前显式调用提炼函数写 round_summary
@@ -532,8 +923,18 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
             for note in notes:
                 shared_docs.notepad_add(round_count, note)
             updates["notes_version"] = int(state.get("notes_version") or 0) + len(notes)
-        # ④ round_end 板用勾选后 todos（05 既有）
-        updates.update(_round_end(text, {**state, "todos": new_todos}))
+            # 07：交付物落盘（way2-4 解析"写入："；way1 不解析）
+            rejected_writes: list[str] = []
+            if cfg["build_way"] != "way1":
+                rejected_writes = _apply_writes(shared_docs, cfg["build_way"], text)
+        else:
+            rejected_writes = []
+        # ④ round_end 板用勾选后 todos（05 既有）；round_output 过 09 送达
+        # 后置（推荐理由截断 + 技能懒加载触发提示）+ 07 白名单拒绝提示
+        round_text = _delivery_output(text, shared_docs)
+        if rejected_writes:
+            round_text = f"{round_text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
+        updates.update(_round_end(round_text, {**state, "todos": new_todos}))
         return updates
 
     return actor_node

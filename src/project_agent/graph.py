@@ -17,11 +17,12 @@ from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
     ask_tasks_node,
-    context_assembler_node,
     guidance_trigger_node,
     loop_exhausted_node,
+    make_assembler_node,
     make_actor_node,
     make_build_ways_node,
+    make_proposals_node,
     make_verifier_node,
     planner_node,
     with_compression,
@@ -35,6 +36,7 @@ from project_agent.routing import (
     GUIDANCE_TRIGGER,
     LOOP_EXHAUSTED,
     PLANNER,
+    PROPOSALS,
     VERIFIER,
     route_from_start,
     _after_verifier,
@@ -58,24 +60,34 @@ def build_graph(
     workspace_root: Path | None = None,
     cheap_model: Any = None,
 ) -> Any:
-    """workspace_root 非 None → SharedDocs(workspace_root) 注入 actor 工厂
-    （06：每轮生成物带【R#】落盘 + Notepad 指令）；None → 不注入（05 行为，
-    cli.py 零改动：骨架无模型本就不落盘；真模型票接线时传 cwd）。
+    """workspace_root 非 None → SharedDocs(workspace_root) 同源注入
+    assembler 与 actor 两工厂（09：assembler 读 notepad 切片/版本门，
+    actor 每轮生成物带【R#】落盘 + Notepad 指令；06：同签名单注入 actor）；
+    None → 不注入（05 行为，cli.py 零改动：骨架无模型本就不落盘；
+    真模型票接线时传 cwd）。
 
     08：cheap_model 非 None → actor/verifier/assembler 三节点包
     with_compression（Q54 模型调用前统一压缩检查；planner 无 LLM 调用
-    不挂，demo 轮属后续票）；None → 裸节点（467 基线零回归）。"""
+    不挂，demo 轮属后续票）；None → 裸节点（基线零回归）。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
+    # 07：way4 三方案并行节点（model=None 走静态兜底三案）
+    graph.add_node(PROPOSALS, make_proposals_node(model))
     graph.add_node(PLANNER, planner_node)
+    # 09：assembler 工厂化（五段组装+版本门+工具子集）；07 的 way4 脚手架
+    # 提示已织入工厂内层；08：cheap_model 时包 with_compression。
     graph.add_node(
         CONTEXT_ASSEMBLER,
-        with_compression(context_assembler_node, cheap_model=cheap_model, shared_docs=shared_docs)
+        with_compression(
+            make_assembler_node(shared_docs=shared_docs),
+            cheap_model=cheap_model,
+            shared_docs=shared_docs,
+        )
         if cheap_model is not None
-        else context_assembler_node,
+        else make_assembler_node(shared_docs=shared_docs),
     )
     graph.add_node(
         ACTOR,
@@ -89,7 +101,11 @@ def build_graph(
     )
     graph.add_node(
         VERIFIER,
-        with_compression(make_verifier_node(model), cheap_model=cheap_model, shared_docs=shared_docs)
+        with_compression(
+            make_verifier_node(model),
+            cheap_model=cheap_model,
+            shared_docs=shared_docs,
+        )
         if cheap_model is not None
         else make_verifier_node(model),
     )
@@ -97,6 +113,7 @@ def build_graph(
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
+    graph.add_edge(PROPOSALS, END)  # 07：断点收轮（choice:proposal）
     graph.add_conditional_edges(
         BUILD_WAYS,
         _after_build_ways,
