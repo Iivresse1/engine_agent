@@ -155,8 +155,8 @@ def test_actor_isolation_redline_no_demo_history_in_model_calls():
 
 
 def test_graph_assembler_actor_flow_with_model():
-    """图级：todos 未清 → context_assembler → actor → END（切片 3 临时直连）。"""
-    model = ScriptedModel(["完成：梳理需求边界。"])
+    """图级：todos 未清 → context_assembler → actor → verifier（未清 END）。"""
+    model = ScriptedModel(["完成：梳理需求边界。", "task_complete: false"])
     saver = InMemorySaver()
     app = build_graph(checkpointer=saver, model=model)
     r = app.invoke(
@@ -173,7 +173,9 @@ def test_graph_assembler_actor_flow_with_model():
     assert r["turn_end_payload"]["round_output"] == "完成：梳理需求边界。"
     assert [item["status"] for item in r["todos"]] == ["completed", "pending"]
     assert r["assembled_context"]["scope"] == "main"
-    assert len(model.calls) == 1
+    assert len(model.calls) == 2  # actor + verifier
+    assert model.calls[0]["role"] == "actor"
+    assert model.calls[1]["role"] == "verifier"
 
 
 def test_graph_model_none_actor_skeleton_inert():
@@ -198,7 +200,7 @@ def test_graph_model_none_actor_skeleton_inert():
 def test_graph_isolation_redline_seeded_demo_messages():
     """图级验收 7：seed demo_messages 带独特标记 → 绝不出现在任何 model 调用。"""
     marker = "DEMO_PRIVATE_MARKER_ABC"
-    model = ScriptedModel(["回复乙"])
+    model = ScriptedModel(["回复乙", "task_complete: false"])
     saver = InMemorySaver()
     app = build_graph(checkpointer=saver, model=model)
     app.invoke(

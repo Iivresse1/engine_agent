@@ -12,10 +12,11 @@ from typing import Any, Mapping
 
 
 class Role(str, Enum):
-    """角色标识（协议级）：01 欠账 c——awaiting_input_from / ModelClient.role 的受控词汇。"""
+    """角色标识（协议级）：awaiting_input_from / ModelClient.role 的受控词汇。"""
 
     ACTOR = "actor"
     DEMO = "demo"
+    VERIFIER = "verifier"  # 05：verifier LLM 判定调用；fusion 映射表无此角色（无融合通道）
 
 
 class TurnEndReason(str, Enum):

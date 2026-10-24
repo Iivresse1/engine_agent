@@ -18,6 +18,7 @@ from project_agent.onboarding import (
     question_for,
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
+from project_agent.routing import _todos_all_completed
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -456,3 +457,88 @@ def make_actor_node(model: Any = None):
         }
 
     return actor_node
+
+
+_TASK_COMPLETE_RE = re.compile(r"task_complete:\s*(true|false)", re.IGNORECASE)
+
+
+def _latest_ai_text(state: Mapping[str, Any]) -> str:
+    for msg in reversed(list(state.get("actor_messages") or [])):
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str):
+                return content
+    return ""
+
+
+def make_verifier_node(model: Any = None):
+    """verifier 节点工厂（05 票终裁 4）。
+
+    - 纯代码：todos_all_completed 扫描（空表→False 防御）写入
+    - LLM：prompt=任务简报+todo 三态板+最后一条 AIMessage 全文，要求输出
+      一行 "task_complete: true/false"；role=verifier；解析 re.search
+      匹配 true→True，其余/无匹配→False（fail-closed）
+    - 写 task_complete + is_docs_finished（05：全方式=task_complete，
+      way2-4 docs 语义 06/07 接管）
+    - 计数自增：todos_all_completed and not task_complete → main_loop_count+1
+      （节点写，条件边 _after_verifier 纯读）
+    - model=None：task_complete=False（fail-closed）+扫描照常+计数照常
+      （单元测试用；图内不可达——model=None 时 actor→END 直连跳过 verifier）
+    """
+
+    def verifier_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        todos = state.get("todos") or []
+        todos_all_completed = _todos_all_completed(todos)
+
+        if model is None:
+            task_complete = False
+        else:
+            prompt = (
+                f"任务简报：{state.get('task_brief') or ''}\n"
+                f"todo 三态板：\n" + "\n".join(_todo_board(state))
+                + ("\n" if _todo_board(state) else "")
+                + f"最后一条 AI 回复：{_latest_ai_text(state)}\n"
+                "请判断任务是否完成。输出一行：task_complete: true 或 task_complete: false"
+            )
+            result = model.complete(
+                [{"role": "user", "content": prompt}],
+                role=Role.VERIFIER.value,
+                thread_id=_thread_id_from(config),
+            )
+            match = _TASK_COMPLETE_RE.search(str(result.text))
+            task_complete = bool(match and match.group(1).lower() == "true")
+
+        updates: dict[str, Any] = {
+            "todos_all_completed": todos_all_completed,
+            "task_complete": task_complete,
+            "is_docs_finished": task_complete,  # 05：全方式=task_complete
+        }
+        if todos_all_completed and not task_complete:
+            updates["main_loop_count"] = int(state.get("main_loop_count") or 0) + 1
+        return updates
+
+    return verifier_node
+
+
+def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。"""
+    todos = state.get("todos") or []
+    done = sum(
+        1
+        for item in todos
+        if isinstance(item, dict) and item.get("status") == "completed"
+    )
+    count = int(state.get("main_loop_count") or 0)
+    payload = validate_payload(
+        TurnEndReason.LOOP_EXHAUSTED,
+        {
+            "scene": f"主环计数 {count}；todos {done}/{len(todos)} 完成",
+            "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
+        },
+    )
+    return {
+        "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
+        "turn_end_payload": payload,
+    }
