@@ -31,7 +31,10 @@ VALID_PAYLOADS = {
         "deliverables_overview": "README/TODO/目录树",
         "options": ["构建 demo", "自定义答案"],
     },
-    TurnEndReason.LOOP_EXHAUSTED: {"help_text": "主环计数=5，请人工接管"},
+    TurnEndReason.LOOP_EXHAUSTED: {
+        "scene": "主环计数=5；todos 3 项未清",
+        "help_text": "请人工接管",
+    },
     TurnEndReason.FINISHED: {
         "delivery_paths": {"backup": "backup/", "clean": "clean/"},
     },

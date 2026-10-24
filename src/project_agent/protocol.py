@@ -52,7 +52,7 @@ BREAKPOINT_PROTOCOL: dict[TurnEndReason, BreakpointSpec] = {
         Fusion.RESOLUTION, ("deliverables_overview", "options")
     ),
     TurnEndReason.LOOP_EXHAUSTED: BreakpointSpec(
-        Fusion.FREE_MAINLINE, ("help_text",)
+        Fusion.FREE_MAINLINE, ("scene", "help_text")
     ),
     TurnEndReason.FINISHED: BreakpointSpec(
         Fusion.TERMINAL, ("delivery_paths",)

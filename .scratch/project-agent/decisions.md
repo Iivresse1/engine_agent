@@ -182,7 +182,8 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **code-review（两轴并行子代理）结论与修复（提交 090bf5c，测试 64 绿）**：
   - Spec 轴两真缺口已修：①断点持久化落盘——CLI 接 SqliteSaver（--state/--new-session，thread_id 会话文件持久化，跨进程重启续跑实测 ✓）；②round payload 补 todo_board 三态板、choice:build_way 拆 recommendation_reason
   - Standards 轴已修：GLOSSARY 术语（REPL 壳→REPL 宿主、轮终→断点）；repl 复用 MAINLINE_KEY；io 走 config.IO 协议；斜杠改前缀匹配
-  - **02 票前置欠账（评审裁定记档）**：RESOLUTION 类融合降级为融主线（02 决议节点落位时升级）；FINISHED 终态后 01 骨架仍融合主线（终态旁路语义后续票）；角色键 actor/demo 与 way1-4 裸串待枚举化（Primitive Obsession，弱）
+  - **02 票前置欠账（评审裁定记档）**：RESOLUTION 类融合降级为融主线（02 决议节点落位时升级）；FINISHED 终态后 01 骨架仍融合主线（终态旁路语义后续票）；角色键 actor/demo 与 way1-4 裸串待枚举化（Primitive Obsession，弱）；**02 票承诺**：build_ways"推荐+一句话理由"走 ModelClient——成为第一个假模型驱动的图节点测试（01 图内零 LLM 调用故替身无处驱动）
+  - Spec 轴复审补充修复：loop_exhausted payload 补 scene 字段（spec L204"现场与求助说明"）
   - 空树 diff 技巧：`git hash-object -w -t tree <空文件>` 物化空树作单提交仓库的评审固定点
 
 ## 挂起 / 待办
