@@ -13,7 +13,7 @@ from project_agent.protocol import (
 )
 
 VALID_PAYLOADS = {
-    TurnEndReason.ROUND: {"round_output": "本轮产出概览"},
+    TurnEndReason.ROUND: {"round_output": "本轮产出概览", "todo_board": ["pending: 搭骨架"]},
     TurnEndReason.QUESTION: {
         "question_text": "你想用什么构建方式？",
         "options": ["对话", "轻 grill", "简化文档", "完整文档"],
@@ -21,7 +21,8 @@ VALID_PAYLOADS = {
     },
     TurnEndReason.CHOICE_BUILD_WAY: {
         "options": ["way1", "way2", "way3", "way4"],
-        "recommendation": "way3：个人作品有沉淀不臃肿",
+        "recommendation": "way3",
+        "recommendation_reason": "个人作品有沉淀不臃肿",
     },
     TurnEndReason.CHOICE_PROPOSAL: {
         "proposal_summaries": ["方案A", "方案B", "方案C"],

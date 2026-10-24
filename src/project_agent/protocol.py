@@ -37,13 +37,13 @@ class BreakpointSpec:
 
 BREAKPOINT_PROTOCOL: dict[TurnEndReason, BreakpointSpec] = {
     TurnEndReason.ROUND: BreakpointSpec(
-        Fusion.MAINLINE, ("round_output",)
+        Fusion.MAINLINE, ("round_output", "todo_board")
     ),
     TurnEndReason.QUESTION: BreakpointSpec(
         Fusion.ASKER, ("question_text", "options", "asker")
     ),
     TurnEndReason.CHOICE_BUILD_WAY: BreakpointSpec(
-        Fusion.RESOLUTION, ("options", "recommendation")
+        Fusion.RESOLUTION, ("options", "recommendation", "recommendation_reason")
     ),
     TurnEndReason.CHOICE_PROPOSAL: BreakpointSpec(
         Fusion.RESOLUTION, ("proposal_summaries",)
@@ -59,7 +59,7 @@ BREAKPOINT_PROTOCOL: dict[TurnEndReason, BreakpointSpec] = {
     ),
 }
 
-_LIST_FIELDS = frozenset({"options", "proposal_summaries"})
+_LIST_FIELDS = frozenset({"options", "proposal_summaries", "todo_board"})
 _DICT_FIELDS = frozenset({"delivery_paths"})
 
 

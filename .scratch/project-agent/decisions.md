@@ -173,6 +173,13 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 
 **Q58（to-tickets 定稿，2026-10-24）**：spec v1.1 拆 12 张 tracer-bullet 票（用户批准），发布于 .scratch/project-agent/issues/01–12。关键裁定：06 上下文工程层拆两张（08 压缩 / 09 两段式+作用域+懒加载）；demo 票依赖压缩票（DemoAgent 轮也是 LLM 调用点）；token 账单独立小票（04）不并入 01（tracer bullet 纪律：第一颗子弹只打最难的靶=断点+路由）。过票中补上两个草案缺口：way2–4 构建形态独立成票（07）、AskAgent 双通道独立成票（10）。前沿演化：01 → {02,03,04} → 05 → 06 → {07,08,09} ∥ → {10,11} → 12。所有票 Status: ready-for-agent。
 
+**Q59（01 票实现事实，2026-10-24 深夜）**：
+- 环境复活：pwsh 5.1.26100 / Python 3.12.4 (venv) / git 2.56；早先 exit 3221225794 状态消失
+- 实测钉版本：langgraph 1.2.17 / langchain 1.4.7 / langchain-core 1.7.0 / pytest 9.1.1（vs 台账钉的 langgraph>=1.2 且 langchain>=1.3.x ✓）
+- **版本敏感行为实测通过**：END 后同 thread 再 invoke 从 START 重跑且 state 恢复 ✓（轮协议的底层前提成立）；START 出发 conditional_edges ✓；`langgraph.graph.message.add_messages` ✓
+- 冒烟发现并钉板两条：①每条可达路径必须写新断点（build_ways 解释不了输入时写 fresh round_end，防 stale turn_end 重渲染）——补为协议级原则；②管道态 stdio 统一 UTF-8（Windows 管道默认 GBK，入口处 reconfigure）
+- ModelClient 协议（role/thread_id 挂钩）先行落地供 04 票账单挂靠；测试 61 绿；提交 ea9b94c
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）

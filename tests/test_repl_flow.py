@@ -59,8 +59,8 @@ def test_repl_session_rounds_slash_and_status(workspace):
     host.run()
 
     out = "\n".join(io.outputs)
-    # 非斜杠输入进主图，轮终渲染断点
-    assert "轮终 · round" in out
+    # 非斜杠输入进主图，断点渲染
+    assert "断点 · round" in out
     # /status 展示仪表盘：task_brief 已被 ask_tasks 桩写入
     assert "task_brief: 我想做一个记账 CLI" in out
     # 第二轮后 build_way 已置位
@@ -91,4 +91,15 @@ def test_repl_renders_missing_reason_as_unrecorded(workspace):
 
     io = ScriptedIO(["hello", "/exit"])
     ReplHost(StubApp(), io, new_thread_id()).run()
-    assert "轮终 · 未记录" in "\n".join(io.outputs)
+    assert "断点 · 未记录" in "\n".join(io.outputs)
+
+
+def test_slash_commands_match_by_prefix(workspace):
+    """spec『路由』：斜杠命令前缀匹配（零 LLM）——带尾随词也命中。"""
+    ensure_config(ConfigStore(workspace.config_path), ScriptedIO(_onboarding_answers()))
+
+    io = ScriptedIO(["/status extra words", "/exit now please"])
+    ReplHost(build_graph(), io, new_thread_id()).run()
+    out = "\n".join(io.outputs)
+    assert "未知命令" not in out  # 前缀命中，不是未知
+    assert "再见" in out  # "/exit now please" 命中退出

@@ -6,17 +6,20 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from project_agent.fusion import fusion_update
+from project_agent.config import IO
+from project_agent.fusion import MAINLINE_KEY, fusion_update
 
 _BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
-_COMMANDS = ("/help", "/status", "/exit")
 _FAREWELL = "再见"
+
+# 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
+_COMMANDS = ("/help", "/status", "/exit")
 
 _STATUS_FIELDS = ("task_brief", "build_way", "guidance_mode", "turn_end_reason")
 
 
 class ReplHost:
-    def __init__(self, app: Any, io: Any, thread_id: str) -> None:
+    def __init__(self, app: Any, io: IO, thread_id: str) -> None:
         self._app = app
         self._io = io
         self._config = {"configurable": {"thread_id": thread_id}}
@@ -38,8 +41,9 @@ class ReplHost:
                 continue
             self._run_turn(text)
 
-    def _dispatch(self, command: str) -> bool:
-        """斜杠命令分发（前缀匹配，零 LLM）。返回 True 表示退出。"""
+    def _dispatch(self, text: str) -> bool:
+        """斜杠命令前缀匹配分发（零 LLM）。返回 True 表示退出。"""
+        command = next((c for c in sorted(_COMMANDS, key=len, reverse=True) if text.startswith(c)), None)
         if command == "/exit":
             self._io.write_line(_FAREWELL)
             return True
@@ -49,20 +53,20 @@ class ReplHost:
         if command == "/status":
             self._status()
             return False
-        self._io.write_line(f"未知命令 {command}。可用命令：{' '.join(_COMMANDS)}")
+        self._io.write_line(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
 
     def _run_turn(self, text: str) -> None:
         update = fusion_update(self._last_state, text)
         if not update:
             # FINISHED 终态：01 骨架仍融合主线；终态旁路语义在后续票完整化
-            update = {"actor_messages": [HumanMessage(content=text)]}
+            update = {MAINLINE_KEY: [HumanMessage(content=text)]}
         result = dict(self._app.invoke(update, self._config))
         self._last_state = result
 
         reason = result.get("turn_end_reason") or "未记录"
         payload = result.get("turn_end_payload") or {}
-        self._io.write_line(f"轮终 · {reason}")
+        self._io.write_line(f"断点 · {reason}")
         for key, value in payload.items():
             self._io.write_line(f"  {key}: {value}")
 

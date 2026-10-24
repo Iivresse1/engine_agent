@@ -1,14 +1,18 @@
 """主工作流图：START → 入口路由（纯代码相位重建）→ 骨架节点 → END。
 
-一轮 = 一次完整图执行；END 即断点（checkpointer 落盘、控制权交还 REPL）。
+一轮 = 一次完整图执行；END 即断点（checkpointer 落盘、控制权交还 REPL 宿主）。
 """
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
-from typing import Any
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
 
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import ask_tasks_node, build_ways_node, placeholder_node
@@ -39,3 +43,18 @@ def build_graph(checkpointer: Any = None) -> Any:
     if checkpointer is None:
         checkpointer = InMemorySaver()
     return graph.compile(checkpointer=checkpointer)
+
+
+@contextmanager
+def sqlite_checkpointer(db_path: str | Path) -> Iterator[Any]:
+    """磁盘断点持久化：进程退出后状态可查（票 L11『落盘可查』）。
+
+    SqliteSaver 持有连接须显式关闭，故为上下文管理器形态。
+    """
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), check_same_thread=False)
+    try:
+        yield SqliteSaver(conn)
+    finally:
+        conn.close()

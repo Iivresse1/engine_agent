@@ -22,9 +22,24 @@ def _latest_human_text(state: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _round_end(round_output: str) -> dict[str, Any]:
-    payload = validate_payload(TurnEndReason.ROUND, {"round_output": round_output})
+def _round_end(round_output: str, state: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """写 round 断点：轮产出 + todo 板（spec 断点协议表 round 行 payload）。"""
+    payload = validate_payload(
+        TurnEndReason.ROUND,
+        {"round_output": round_output, "todo_board": _todo_board(state)},
+    )
     return {"turn_end_reason": TurnEndReason.ROUND.value, "turn_end_payload": payload}
+
+
+def _todo_board(state: Mapping[str, Any] | None) -> list[str]:
+    """三态 todo 板渲染（01 骨架：工作流级 todos 通常为空 → 空板）。"""
+    board: list[str] = []
+    for item in (state or {}).get("todos") or []:
+        if isinstance(item, dict):
+            content = str(item.get("content", ""))
+            status = str(item.get("status", "pending"))
+            board.append(f"{status}: {content}")
+    return board
 
 
 def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -34,7 +49,7 @@ def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
     text = _latest_human_text(state)
     if not text:
         return {}
-    return {"task_brief": text, **_round_end(f"任务简报已记录：{text}")}
+    return {"task_brief": text, **_round_end(f"任务简报已记录：{text}", state)}
 
 
 _BUILD_WAY_KEYWORDS: list[tuple[str, str]] = [
@@ -64,10 +79,10 @@ def build_ways_node(state: Mapping[str, Any]) -> dict[str, Any]:
         return {}
     way = _interpret_build_way(_latest_human_text(state))
     if way is None:
-        return _round_end("未识别构建方式。01 骨架关键词：完整 / 简化 / 轻 / 对话。")
-    return {"build_way": way, **_round_end(f"构建方式已定：{way}")}
+        return _round_end("未识别构建方式。01 骨架关键词：完整 / 简化 / 轻 / 对话。", state)
+    return {"build_way": way, **_round_end(f"构建方式已定：{way}", state)}
 
 
 def placeholder_node(state: Mapping[str, Any]) -> dict[str, Any]:
     """default 相位占位：输入已融合、状态已保存，后续相位随票落位。"""
-    return _round_end("占位：该相位未实现（01 票骨架）。输入已融合，状态已保存。")
+    return _round_end("占位：该相位未实现（01 票骨架）。输入已融合，状态已保存。", state)
