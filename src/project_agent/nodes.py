@@ -305,6 +305,18 @@ def _static_choice() -> dict[str, Any]:
 _LABEL_BY_WAY: dict[str, str] = {way: label for label, way in _WAY_BY_LABEL.items()}
 
 
+def guidance_trigger_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """纯配置映射写 guidance_mode 三态（spec 节点表：只写 guidance_mode，不写 turn_end）。"""
+    from project_agent.onboarding import guidance_mode_mapping
+
+    mode = guidance_mode_mapping(
+        state.get("build_way"),
+        state.get("guidance_pref"),
+        state.get("user_mode"),
+    )
+    return {"guidance_mode": mode}
+
+
 def placeholder_node(state: Mapping[str, Any]) -> dict[str, Any]:
     """default 相位占位：输入已融合、状态已保存，后续相位随票落位。"""
     return _round_end("占位：该相位未实现（01 票骨架）。输入已融合，状态已保存。", state)
