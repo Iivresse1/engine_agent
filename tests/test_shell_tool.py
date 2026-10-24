@@ -123,6 +123,73 @@ def test_terminal_approval_callback_rejects_non_yes():
     assert result.note
 
 
+# ---- 审计接线（03 checker 判决 → 04 AuditLog sink）：deny/ask 落审计，allow 不落 ----
+
+def test_deny_records_audit_event(tmp_path):
+    from project_agent.audit import AuditLog
+
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    shell = RecordingShell()
+    tool = ShellTool(
+        policy=_policy(),
+        approval=StubApproval(approved=True),
+        shell_runner=shell,
+        audit=audit,
+        thread_id="t-audit",
+    )
+    with pytest.raises(ShellPermissionDenied):
+        tool.run("rm -rf /")
+    events = audit.events_for(thread_id="t-audit")
+    assert len(events) == 1
+    assert events[0].rule_id == "static.catastrophic_delete"
+    assert events[0].command == "rm -rf /"
+    assert events[0].reason
+    assert shell.calls == []
+    # 持久化：重载同一文件可见（04 票 AuditLog 语义）
+    assert len(AuditLog(tmp_path / "audit.jsonl").events_for(thread_id="t-audit")) == 1
+
+
+def test_ask_records_audit_event_at_decision_time(tmp_path):
+    from project_agent.audit import AuditLog
+
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    shell = RecordingShell(outputs={"git clone https://github.com/u/r.git": "cloned"})
+    tool = ShellTool(
+        policy=_policy(),
+        approval=StubApproval(approved=True),
+        shell_runner=shell,
+        audit=audit,
+        thread_id="t-audit",
+    )
+    tool.run("git clone https://github.com/u/r.git")
+    events = audit.events_for(thread_id="t-audit")
+    assert len(events) == 1
+    assert events[0].rule_id == "whitelist.ask"
+    assert events[0].command == "git clone https://github.com/u/r.git"
+
+
+def test_allow_records_no_audit_event(tmp_path):
+    from project_agent.audit import AuditLog
+
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    tool = ShellTool(
+        policy=_policy(),
+        approval=StubApproval(approved=True),
+        shell_runner=RecordingShell(),
+        audit=audit,
+        thread_id="t-audit",
+    )
+    tool.run("ls -la")
+    assert audit.events_for(thread_id="t-audit") == []
+
+
+def test_audit_is_optional_backwards_compatible():
+    # 无 audit 参数时行为与 03 票交付完全一致（默认不接线）
+    shell = RecordingShell(outputs={"ls -la": "ok"})
+    tool = ShellTool(policy=_policy(), approval=StubApproval(approved=True), shell_runner=shell)
+    assert tool.run("ls -la") == "ok"
+
+
 # ---- AST 边界：ADR-0001 例外——审批在 REPL 宿主层，不进图 ----
 
 FORBIDDEN_IMPORT_PREFIXES = (
