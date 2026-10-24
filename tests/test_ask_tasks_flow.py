@@ -49,7 +49,10 @@ def test_answer_to_pending_question_writes_field_then_asks_next():
     updates = ask_tasks_node(state)
     assert updates["user_mode"] == "novice"
     assert updates["turn_end_reason"] == "question"
-    assert updates["turn_end_payload"]["question_text"] == "希望新手指引如何运作？"
+    # novice 落盘后问 Q2：问题文本追加 novice_hint
+    assert (
+        updates["turn_end_payload"]["question_text"] == "希望新手指引如何运作？；新手推荐 1"
+    )
     assert updates["turn_end_payload"]["options"] == ["自动每轮", "每轮询问", "关"]
 
 

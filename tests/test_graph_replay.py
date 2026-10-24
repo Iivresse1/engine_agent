@@ -80,7 +80,105 @@ def test_state_restored_across_app_instances():
     assert "占位" in r["turn_end_payload"]["round_output"]  # 跳过 ask_tasks/build_ways
 
 
-def test_ask_tasks_node_is_idempotent_on_reentry():
+def test_full_onboarding_to_completion_replay():
+    """大回放：idea→四问→简报→choice→决议→guidance→占位，逐轮断言。
+
+    - 四问仅首次（后续轮零 question reason——choice 之后不再有问卷）
+    - task_brief 恒定（写定后不被后续轮改写）
+    - model 恰一次调用（choice 推荐；决议重发复用不重调）
+    - 决议后通道清空
+    """
+    from tests.doubles.fake_model import ScriptedModel
+
+    saver = InMemorySaver()
+    model = ScriptedModel(["way3|简化起步快"])  # 仅 choice 推荐触一次
+    app = build_graph(checkpointer=saver, model=model)
+    cfg = _cfg("full")
+
+    # 首轮：idea → Q1
+    r = app.invoke(_say("我想做个记账 CLI"), cfg)
+    assert r["turn_end_reason"] == "question"
+    assert "task_brief" not in r
+
+    # 四问逐轮：答案解释落盘
+    r = app.invoke(_say("我不了解编程"), cfg)
+    assert r["user_mode"] == "novice"
+    assert "新手推荐 1" in r["turn_end_payload"]["question_text"]  # Q2 带 hint
+    r = app.invoke(_say("自动每轮"), cfg)
+    assert r["guidance_pref"] == "auto"
+    r = app.invoke(_say("AI 自动审核"), cfg)
+    assert r["decision_mode"] == "ai_review"
+    r = app.invoke(_say("默认技能包"), cfg)
+    assert r["skill_packs"] == ["default"]
+    assert r["task_brief"] == "我想做个记账 CLI"  # 从首条人类消息写定
+    assert r["turn_end_reason"] == "round"
+    brief = r["task_brief"]
+
+    # choice 断点：model 恰一次调用
+    r_choice = app.invoke(_say("嗯"), cfg)
+    assert r_choice["turn_end_reason"] == "choice:build_way"
+    assert len(model.calls) == 1
+    assert r_choice["turn_end_payload"]["recommendation"] == "简化文档"
+    assert r_choice["turn_end_payload"]["recommendation_reason"] == "简化起步快"
+
+    # 决议：序号解释
+    r = app.invoke(_resolve(r_choice, "1"), cfg)
+    assert r["build_way"] == "way1"
+    assert r["resolution_inputs"] == []
+    assert r["guidance_mode"] == "off"  # way1 纯对话→off
+    assert r["task_brief"] == brief  # 恒定
+    assert len(model.calls) == 1  # 决议不重调 model
+
+    # 后续轮：零 question reason（四问仅首次）
+    r = app.invoke(_say("继续"), cfg)
+    assert r["turn_end_reason"] == "round"
+    assert "占位" in r["turn_end_payload"]["round_output"]
+    assert r["task_brief"] == brief
+    assert r["turn_end_reason"] != "question"
+    assert len(model.calls) == 1
+
+
+def test_guidance_mode_persists_across_app_instances():
+    """guidance_mode 三态落盘：跨 app 实例持久化（novice+pref=auto）。"""
+    saver = InMemorySaver()
+    app1 = build_graph(checkpointer=saver)
+    cfg = _cfg("gm")
+    r = app1.invoke(
+        {
+            "task_brief": "想法",
+            "user_mode": "novice",
+            "guidance_pref": "auto",
+            "decision_mode": "manual",
+            "skill_packs": [],
+            "resolution_inputs": ["3"],
+        },
+        cfg,
+    )
+    assert r["guidance_mode"] == "auto"
+
+    app2 = build_graph(checkpointer=saver)
+    r2 = app2.invoke(_say("继续"), cfg)
+    assert r2["guidance_mode"] == "auto"
+    assert r2["build_way"] == "way3"
+
+
+def test_questionnaire_seeded_input_fast_forwards_to_build_ways():
+    """seed 问卷字段直接入 invoke 输入：可快进到 build_ways 相位（01 遗留直达）。"""
+    saver = InMemorySaver()
+    app = build_graph(checkpointer=saver)
+    cfg = _cfg("seed")
+    r = app.invoke(
+        {
+            "task_brief": "已有简报",
+            "user_mode": "experienced",
+            "guidance_pref": "ask",
+            "decision_mode": "manual",
+            "skill_packs": [],
+            "resolution_inputs": [],
+        },
+        cfg,
+    )
+    assert r["turn_end_reason"] == "choice:build_way"  # 零 question 轮
     from project_agent.nodes import ask_tasks_node
 
     state = {"actor_messages": [HumanMessage("新文本")], "task_brief": "已定的简报"}

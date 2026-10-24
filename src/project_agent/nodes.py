@@ -163,9 +163,10 @@ def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
     if state.get("task_brief"):
         return {}
 
-    def _ask(field: str) -> dict[str, Any]:
+    def _ask(field: str, dashboard: Mapping[str, Any] | None = None) -> dict[str, Any]:
         spec = question_for(field)
-        hint = field == "guidance_pref" and state.get("user_mode") == "novice"
+        probe = dashboard if dashboard is not None else state
+        hint = field == "guidance_pref" and probe.get("user_mode") == "novice"
         return _question_breakpoint(spec, hint=hint)
 
     def _unset(dashboard: Mapping[str, Any]) -> str | None:
@@ -191,7 +192,7 @@ def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
                             "task_brief": brief,
                             **_round_end(f"任务简报已记录：{brief}", state),
                         }
-                return {**updated, **_ask(nxt)} if nxt is not None else updated
+                return {**updated, **_ask(nxt, probe)} if nxt is not None else updated
         # 不可解释或无答案：重问当前题（幂等零副作用）
         target = current if current is not None else _unset(state)
         if target is not None:
