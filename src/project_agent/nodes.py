@@ -19,7 +19,10 @@ from project_agent.onboarding import (
 )
 from project_agent.protocol import Role, TurnEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
-from project_agent.shared_docs import SharedDocs
+from project_agent.scopes import rule_for, tools_for_scope
+from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
+from project_agent.skills import skill_heads
+from project_agent.tools.registry import ALL_TOOLS
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
@@ -361,24 +364,72 @@ def _pending_count(todos: Any) -> int:
     )
 
 
-def context_assembler_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """context_assembler：写 assembled_context（每轮整覆写，state key 无 reducer）。
+def make_assembler_node(
+    shared_docs: Optional[SharedDocs] = None,
+):
+    """context_assembler 节点工厂（05 终裁 6 → 09 工厂化+升级）。
 
-    读 current_scope / todos / guidance_mode / build_way；不写任何消息。
+    写 assembled_context（每轮整覆写，state key 无 reducer）；不写任何消息。
+    09 组装五段：
+    - system = base + "\\n" + 作用域规则行 + "\\n" + todo 板渲染 + "\\n"
+      + notepad 切片块 + "\\n" + 技能头块
+    - 新键 tools_subset = sorted(tools_for_scope(current_scope, 全矩阵))
+      （scope 交集——"送"半段的消费材料）
+    - 新键 skills = [name：one_liner]（技能头，懒加载——只有名字+一句话）
+    - shared_docs 非 None 时读 notepad 切片（验收 6）：guidance_gate(
+      notes_version, guidance_read_version) 真 → 追加【Notepad】块（全部
+      条目行【R#】- content）+ 写 guidance_read_version 对齐（节点写，下轮
+      差=0 不再注入——stale-read 杜绝）；门假 → 零块零写。
+    - shared_docs=None → 零 Notepad 块零版本写（既有行为零回归）。
     """
-    todos = state.get("todos") or []
-    updates: dict[str, Any] = {
-        "assembled_context": {
-            "system": (
-                f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
-                f"指引 {state.get('guidance_mode') or ''}，"
-                f"待办 {_pending_count(todos)} 项"
+
+    def context_assembler_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        todos = state.get("todos") or []
+        current_scope = str(state.get("current_scope") or "main")
+
+        # —— 装（五段 system 组装）——
+        base = (
+            f"你是构建 agent。当前方式 {state.get('build_way') or ''}，"
+            f"指引 {state.get('guidance_mode') or ''}，"
+            f"待办 {_pending_count(todos)} 项"
+        )
+        scope_line = f"【作用域】{rule_for(current_scope)}"
+        board_lines = list(_todo_board(state))
+        sections = [base, scope_line, "\n".join(board_lines)]
+
+        updates: dict[str, Any] = {}
+
+        # notepad 切片块（版本门，验收 6）——assembler 无句柄时零块零写
+        if shared_docs is not None:
+            notes_version = int(state.get("notes_version") or 0)
+            guidance_read_version = int(state.get("guidance_read_version") or 0)
+            if guidance_gate(notes_version, guidance_read_version):
+                entries = shared_docs.notepad_entries()
+                if entries:
+                    sections.append("【Notepad】\n" + "\n".join(
+                        f"【R{no}】- {content}" for no, content in entries
+                    ))
+                # 节点写对齐：下轮差=0 不再注入（stale-read 杜绝）
+                updates["guidance_read_version"] = align_guidance_read(notes_version)
+
+        # 技能头块：只注名字+一句话（懒加载——全文触发时才读入）
+        skill_lines = [f"{h.name}：{h.one_liner}" for h in skill_heads()]
+        sections.append("【技能】\n" + "\n".join(skill_lines))
+
+        updates["assembled_context"] = {
+            "system": "\n".join(sections),
+            "todo_board": board_lines,
+            "scope": current_scope,
+            "tools_subset": sorted(
+                tools_for_scope(current_scope, frozenset(ALL_TOOLS))
             ),
-            "todo_board": _todo_board(state),
-            "scope": str(state.get("current_scope") or "main"),
+            "skills": skill_lines,
         }
-    }
-    return updates
+        return updates
+
+    return context_assembler_node
 
 
 def _thread_id_from(config: Any) -> str:

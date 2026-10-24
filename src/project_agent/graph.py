@@ -17,9 +17,9 @@ from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
     ask_tasks_node,
-    context_assembler_node,
     guidance_trigger_node,
     loop_exhausted_node,
+    make_assembler_node,
     make_actor_node,
     make_build_ways_node,
     make_verifier_node,
@@ -56,16 +56,18 @@ def build_graph(
     model: Any = None,
     workspace_root: Path | None = None,
 ) -> Any:
-    """workspace_root 非 None → SharedDocs(workspace_root) 注入 actor 工厂
-    （06：每轮生成物带【R#】落盘 + Notepad 指令）；None → 不注入（05 行为，
-    cli.py 零改动：骨架无模型本就不落盘；真模型票接线时传 cwd）。"""
+    """workspace_root 非 None → SharedDocs(workspace_root) 同源注入
+    assembler 与 actor 两工厂（09：assembler 读 notepad 切片/版本门，
+    actor 每轮生成物带【R#】落盘 + Notepad 指令；06：同签名单注入 actor）；
+    None → 不注入（05 行为，cli.py 零改动：骨架无模型本就不落盘；
+    真模型票接线时传 cwd）。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     graph.add_node(PLANNER, planner_node)
-    graph.add_node(CONTEXT_ASSEMBLER, context_assembler_node)
+    graph.add_node(CONTEXT_ASSEMBLER, make_assembler_node(shared_docs=shared_docs))
     graph.add_node(ACTOR, make_actor_node(model, shared_docs=shared_docs))
     graph.add_node(VERIFIER, make_verifier_node(model))
     graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)
