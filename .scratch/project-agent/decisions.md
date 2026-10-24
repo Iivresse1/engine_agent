@@ -179,6 +179,11 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **版本敏感行为实测通过**：END 后同 thread 再 invoke 从 START 重跑且 state 恢复 ✓（轮协议的底层前提成立）；START 出发 conditional_edges ✓；`langgraph.graph.message.add_messages` ✓
 - 冒烟发现并钉板两条：①每条可达路径必须写新断点（build_ways 解释不了输入时写 fresh round_end，防 stale turn_end 重渲染）——补为协议级原则；②管道态 stdio 统一 UTF-8（Windows 管道默认 GBK，入口处 reconfigure）
 - ModelClient 协议（role/thread_id 挂钩）先行落地供 04 票账单挂靠；测试 61 绿；提交 ea9b94c
+- **code-review（两轴并行子代理）结论与修复（提交 090bf5c，测试 64 绿）**：
+  - Spec 轴两真缺口已修：①断点持久化落盘——CLI 接 SqliteSaver（--state/--new-session，thread_id 会话文件持久化，跨进程重启续跑实测 ✓）；②round payload 补 todo_board 三态板、choice:build_way 拆 recommendation_reason
+  - Standards 轴已修：GLOSSARY 术语（REPL 壳→REPL 宿主、轮终→断点）；repl 复用 MAINLINE_KEY；io 走 config.IO 协议；斜杠改前缀匹配
+  - **02 票前置欠账（评审裁定记档）**：RESOLUTION 类融合降级为融主线（02 决议节点落位时升级）；FINISHED 终态后 01 骨架仍融合主线（终态旁路语义后续票）；角色键 actor/demo 与 way1-4 裸串待枚举化（Primitive Obsession，弱）
+  - 空树 diff 技巧：`git hash-object -w -t tree <空文件>` 物化空树作单提交仓库的评审固定点
 
 ## 挂起 / 待办
 
