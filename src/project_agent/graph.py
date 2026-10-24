@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
-from project_agent.nodes import ask_tasks_node, build_ways_node, placeholder_node
+from project_agent.nodes import ask_tasks_node, make_build_ways_node, placeholder_node
 from project_agent.routing import ASK_TASKS, BUILD_WAYS, PLACEHOLDER, route_from_start
 from project_agent.state import GraphState
 
@@ -24,10 +24,10 @@ def new_thread_id() -> str:
     return uuid.uuid4().hex
 
 
-def build_graph(checkpointer: Any = None) -> Any:
+def build_graph(checkpointer: Any = None, model: Any = None) -> Any:
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
-    graph.add_node(BUILD_WAYS, build_ways_node)
+    graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(PLACEHOLDER, placeholder_node)
 
     graph.add_conditional_edges(

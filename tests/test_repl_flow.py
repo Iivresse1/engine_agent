@@ -46,7 +46,9 @@ def test_repl_session_rounds_slash_and_status(workspace):
         + [
             "我想做一个记账 CLI",
             "/status",
-            "完整文档",
+            "嗯",  # 首入 build_ways：发 choice 断点
+            "/status",
+            "用完整文档",  # 决议通道输入 → build_way 写定
             "/status",
             "/nope",
             "/exit",
@@ -63,7 +65,11 @@ def test_repl_session_rounds_slash_and_status(workspace):
     assert "断点 · round" in out
     # /status 展示仪表盘：task_brief 已被 ask_tasks 桩写入
     assert "task_brief: 我想做一个记账 CLI" in out
-    # 第二轮后 build_way 已置位
+    # choice 断点渲染：4 选项 + 推荐 + 一句话理由
+    assert "断点 · choice:build_way" in out
+    assert "轻 grill" in out
+    assert "个人作品有沉淀不臃肿" in out
+    # 决议后 build_way 已置位
     assert "build_way: way4" in out
     # 未知斜杠零 LLM：报错并列出可用命令
     assert "未知命令 /nope" in out
