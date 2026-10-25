@@ -45,6 +45,7 @@ class ReplHost:
         *,
         cheap_model: Any = None,
         shared_docs: Any = None,
+        error_classifier: Any = None,
     ) -> None:
         self._app = app
         self._io = io
@@ -52,6 +53,8 @@ class ReplHost:
         self._last_state: dict[str, Any] = {}
         self._cheap_model = cheap_model
         self._shared_docs = shared_docs
+        # 11：窄分类兜底模型（ModelClient 形态；None → 层 3 默认 normal）
+        self._error_classifier = error_classifier
         # /compact 产生的待并压缩批：下轮 invoke 携带进图（经 add_messages
         # reducer 归约——否则 checkpointer 里的历史永远未压）
         self._pending_compression: dict[str, Any] | None = None
@@ -118,6 +121,26 @@ class ReplHost:
         self._io.write_line(f"已压缩 {covered} 轮（{len(packs)} 包）；磁盘【R#】原文不受影响。")
 
     def _run_turn(self, text: str) -> None:
+        # 11：demo 构建中的输入先过三层混合路由（斜杠已在 run() 前分流）
+        if self._last_state.get("demo_phase") == "building":
+            route = route_input(
+                text,
+                last_state=self._last_state,
+                error_classifier=self._error_classifier,
+            )
+            if route == "error_return":
+                # 报错回传：融合进 demo_messages 进修复环；demo 环计数++（封顶 5）
+                self._invoke_turn(
+                    {
+                        "demo_messages": [HumanMessage(content=text)],
+                        "demo_loop_count": int(
+                            self._last_state.get("demo_loop_count") or 0
+                        )
+                        + 1,
+                    }
+                )
+                return
+
         update = fusion_update(self._last_state, text)
         if not update:
             # FINISHED 终态（01 欠账 b）：不再融合不再 invoke
@@ -132,6 +155,9 @@ class ReplHost:
             merged_batch.extend(update.get("actor_messages") or [])
             update = dict(pending)
             update["actor_messages"] = merged_batch
+        self._invoke_turn(update)
+
+    def _invoke_turn(self, update: dict[str, Any]) -> None:
         result = dict(self._app.invoke(update, self._config))
         self._last_state = result
 

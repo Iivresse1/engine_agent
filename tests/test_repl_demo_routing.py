@@ -104,3 +104,40 @@ def test_error_return_renders_round_breakpoint():
     host, io = _host(stub, ["第一轮", "SyntaxError: invalid syntax"])
     host.run()
     assert any("断点 · round" in line for line in io.outputs)
+
+
+def test_fifth_pasted_error_breaks_with_loop_exhausted(tmp_path):
+    """验收 5 端到端：真图 REPL 回放——第 5 次贴报错 → loop_exhausted 断点。"""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from project_agent.graph import build_graph
+
+    main = ScriptedModel(["第四轮修复", "第五轮前修复"])
+    app = build_graph(
+        checkpointer=InMemorySaver(), model=main, workspace_root=tmp_path
+    )
+    cfg = {"configurable": {"thread_id": "t-demo-loop"}}
+    app.invoke(
+        {
+            "task_brief": "做个记账 CLI",
+            "build_way": "way3",
+            "todos": [{"content": "写 README", "status": "completed"}],
+            "task_complete": True,
+            "demo_phase": "building",
+            "demo_loop_count": 4,
+            "demo_messages": [HumanMessage(content="第 4 次报错")],
+            "actor_messages": [HumanMessage(content="主线")],
+        },
+        cfg,
+    )
+
+    io = ScriptedIO(["继续修一下", "Traceback (most recent call last): fifth"])
+    host = ReplHost(app, io, "t-demo-loop")
+    host.run()
+
+    out = "\n".join(io.outputs)
+    assert "断点 · loop_exhausted" in out
+    assert "demo 环计数 5" in out
+    state = app.get_state(cfg).values
+    assert state["demo_loop_count"] == 5
+    assert len(state["demo_messages"]) >= 2
