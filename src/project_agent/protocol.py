@@ -18,6 +18,7 @@ class Role(str, Enum):
     DEMO = "demo"
     DEMO_AGENT = "demo_agent"  # 11：DemoAgent LLM 调用角色（fusion 映射不动）
     VERIFIER = "verifier"  # 05：verifier LLM 判定调用；fusion 映射表无此角色（无融合通道）
+    FINALIZER = "finalizer"  # 12：终检/收尾 LLM 调用角色（语义校验+final_report）
 
 
 class TurnEndReason(str, Enum):
