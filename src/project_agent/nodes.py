@@ -1003,6 +1003,175 @@ def make_verifier_node(model: Any = None):
     return verifier_node
 
 
+# —— 11 票：docs_done 断点（demo 决议）+ DemoAgent（生成不运行）——
+
+_DOCS_DONE_OPTIONS: list[str] = ["构建 demo", "跳过"]
+# 决议解释关键词（序：跳过先于构建——"不"优先）
+_DOCS_SKIP_KEYWORDS = ("跳过", "不")
+_DOCS_BUILD_KEYWORDS = ("构建", "demo")
+
+
+def _deliverables_overview(state: Mapping[str, Any]) -> str:
+    """交付概览行："交付物集 N 份已就绪（文件名, …）"（未知 way → 0 份防御）。"""
+    from project_agent.deliverables import DELIVERABLE_SETS
+
+    names = list(DELIVERABLE_SETS.get(str(state.get("build_way") or ""), ()))
+    return f"交付物集 {len(names)} 份已就绪（{', '.join(names)}）"
+
+
+def _docs_done_payload(state: Mapping[str, Any]) -> dict[str, Any]:
+    return validate_payload(
+        TurnEndReason.DOCS_DONE,
+        {
+            "deliverables_overview": _deliverables_overview(state),
+            "options": list(_DOCS_DONE_OPTIONS),
+        },
+    )
+
+
+def _reuse_docs_payload(state: Mapping[str, Any]) -> dict[str, Any] | None:
+    """复用上轮 docs_done payload（校验通过才复用；同 build_ways 模式）。"""
+    last_payload = state.get("turn_end_payload")
+    if not isinstance(last_payload, Mapping):
+        return None
+    try:
+        return validate_payload(TurnEndReason.DOCS_DONE, dict(last_payload))
+    except Exception:
+        return None
+
+
+def docs_done_node(state: Mapping[str, Any]) -> dict[str, Any]:
+    """docs_done 断点节点（11 票终裁 A，纯代码零 LLM）。
+
+    - demo_phase 已决（building/skipped）→ {}（可重入幂等零副作用）
+    - resolution_inputs 非空 → 解释自由文本：
+      "跳过"/"不"/"2" → demo_phase="skipped" + round_end("已跳过 demo")；
+      "构建"/"demo"/"1" → demo_phase="building"（**不含 turn_end**——同轮接
+      DEMO_AGENT，断点由后节点写）；无匹配 → 清通道 + 复用上轮 payload 重发
+      （不可复用则按当前 way 重建）——零副作用
+    - 无 pending → 发 docs_done 断点：交付概览 + ["构建 demo", "跳过"]
+    """
+    if state.get("demo_phase"):
+        return {}
+
+    pending = state.get("resolution_inputs") or []
+    if pending:
+        text = str(pending[-1])
+        lowered = text.lower()
+        if any(keyword in text for keyword in _DOCS_SKIP_KEYWORDS) or text.strip() == "2":
+            return {
+                "demo_phase": "skipped",
+                "resolution_inputs": [],
+                **_round_end("已跳过 demo", state),
+            }
+        if (
+            any(keyword in lowered for keyword in _DOCS_BUILD_KEYWORDS)
+            or text.strip() == "1"
+        ):
+            return {"demo_phase": "building", "resolution_inputs": []}
+        payload = _reuse_docs_payload(state) or _docs_done_payload(state)
+        return {
+            "resolution_inputs": [],
+            "turn_end_reason": TurnEndReason.DOCS_DONE.value,
+            "turn_end_payload": payload,
+        }
+
+    return {
+        "turn_end_reason": TurnEndReason.DOCS_DONE.value,
+        "turn_end_payload": _docs_done_payload(state),
+    }
+
+
+_DEMO_TASK_LINE = "任务：为已完成的交付物生成可运行 demo 与运行指南。"
+# 响应内运行指令行首模式："运行：{cmd}"（行中粘连不误中）
+_DEMO_RUN_RE = re.compile(r"^[ \t]*运行[:：][ \t]*(.+)$", re.MULTILINE)
+_DEMO_RUN_PROMPT = "运行权在用户（ADR-0003）：请自行执行 {cmd}"
+_DEMO_SKELETON_NOTICE = "demo 轮待真模型接入（11 骨架）：本轮无产出。"
+
+
+def _demo_model_messages(state: Mapping[str, Any]) -> list[dict[str, str]]:
+    """隔离红线照旧：任务行 + demo 私有历史转 dict——绝不掺其他角色历史。"""
+    task_line = (
+        f"{_DEMO_TASK_LINE}\n交付物：{_deliverables_overview(state)}"
+        f"\n报错上下文：{_demo_tail(state)}"
+    )
+    messages: list[dict[str, str]] = [{"role": "user", "content": task_line}]
+    for msg in state.get("demo_messages") or []:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": str(msg.content)})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": str(msg.content)})
+    return messages
+
+
+def _demo_tail(state: Mapping[str, Any]) -> str:
+    """报错上下文 = demo_messages 尾部（最后一条非空文本）；无 → "无"。"""
+    for msg in reversed(list(state.get("demo_messages") or [])):
+        content = getattr(msg, "content", None)
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return "无"
+
+
+def _parse_run_commands(text: str) -> list[str]:
+    """「运行：{cmd}」指令解析（行首模式）：返回命令列表；无→[]。"""
+    return [
+        match.group(1).strip()
+        for match in _DEMO_RUN_RE.finditer(text)
+        if match.group(1).strip()
+    ]
+
+
+def make_demo_agent_node(
+    model: Any = None, shared_docs: Optional[SharedDocs] = None
+):
+    """DemoAgent 节点工厂（11 票终裁 B；ADR-0003 生成不运行）。
+
+    - model=None：写 round_end(骨架通告) 即返（不调模型不产 AIMessage）
+    - 有模型：messages=[任务行（交付概览+报错上下文）] + demo_messages 历史转
+      dict；model.complete(role="demo_agent")
+    - 产出 AIMessage 追加 demo_messages；响应含 "写入：{文件名}\\n{内容}" →
+      shared_docs.write_any 落盘（无白名单）；turn_end=round（round_output=
+      摘要 distill_round）
+    - 响应含 "运行：{cmd}" → round_output 追加"运行权在用户（ADR-0003）：
+      请自行执行 {cmd}"——**绝不调用 ShellTool**（运行权留人手）
+    - 报错修复：demo_messages 尾部报错文本进任务行"报错上下文"，每轮一个
+      修复回合（计数 REPL 融合时自增，条件边 _after_demo 读）
+    """
+
+    def demo_agent_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if model is None:
+            return _round_end(_DEMO_SKELETON_NOTICE, state)
+
+        messages = _demo_model_messages(state)
+        result = model.complete(
+            messages,
+            role=Role.DEMO_AGENT.value,
+            thread_id=_thread_id_from(config),
+        )
+        text = str(result.text)
+        ai_message = AIMessage(content=text)
+        if shared_docs is not None:
+            for filename, content in _parse_writes(text):
+                shared_docs.write_any(filename, content)
+
+        summary = distill_round(
+            [*(state.get("demo_messages") or []), ai_message]
+        )
+        run_prompts = [
+            _DEMO_RUN_PROMPT.format(cmd=cmd) for cmd in _parse_run_commands(text)
+        ]
+        round_text = "\n".join([summary, *run_prompts]) if run_prompts else summary
+        return {
+            "demo_messages": [ai_message],
+            **_round_end(round_text, state),
+        }
+
+    return demo_agent_node
+
+
 def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
     """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。"""
     todos = state.get("todos") or []
@@ -1012,10 +1181,14 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict) and item.get("status") == "completed"
     )
     count = int(state.get("main_loop_count") or 0)
+    demo_count = int(state.get("demo_loop_count") or 0)
     payload = validate_payload(
         TurnEndReason.LOOP_EXHAUSTED,
         {
-            "scene": f"主环计数 {count}；todos {done}/{len(todos)} 完成",
+            "scene": (
+                f"主环计数 {count}；demo 环计数 {demo_count}；"
+                f"todos {done}/{len(todos)} 完成"
+            ),
             "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
         },
     )
@@ -1190,16 +1363,17 @@ def with_compression(
     *,
     cheap_model: Any = None,
     shared_docs: Optional[SharedDocs] = None,
+    messages_key: str = "actor_messages",
 ) -> Any:
     """装饰器工厂（08 票挂接方式终裁）：不改既有节点签名，包装任意节点。
 
-    调前跑 run_compression_check（传 state 的 actor_messages / configurable
+    调前跑 run_compression_check（传 state 的 messages_key 历史 / configurable
     thread_id / shared_docs / notes_version），其更新合并进 state 后再调
     原节点；cheap_model=None → 返回原节点裸函数（467 基线零回归）。
 
     挂点：actor / verifier / assembler 三节点（planner 无 LLM 调用不挂；
-    demo 轮属后续票）。主模型参数经闭包由被包装节点自身持有（Q54 统一
-    检查只依赖消息历史与便宜模型）。
+    11 票补第四挂点 DEMO_AGENT，messages_key="demo_messages"——demo 轮同过
+    统一压缩检查）。主模型参数经闭包由被包装节点自身持有。
     """
 
     if cheap_model is None:
@@ -1207,13 +1381,18 @@ def with_compression(
 
     def wrapped(state: Mapping[str, Any], config: Any = None) -> dict[str, Any]:
         compression_updates = run_compression_check(
-            messages=state.get("actor_messages") or [],
+            messages=state.get(messages_key) or [],
             model=None,
             cheap_model=cheap_model,
             thread_id=_thread_id_from(config),
             shared_docs=shared_docs,
             notes_version=int(state.get("notes_version") or 0),
         )
+        if compression_updates is not None and messages_key != "actor_messages":
+            # 重排批落在被包装节点的私有 key 上（demo 轮：demo_messages）
+            compression_updates[messages_key] = compression_updates.pop(
+                "actor_messages"
+            )
         if compression_updates is not None:
             merged = dict(state)
             merged.update(compression_updates)

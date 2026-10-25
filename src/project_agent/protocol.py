@@ -16,6 +16,7 @@ class Role(str, Enum):
 
     ACTOR = "actor"
     DEMO = "demo"
+    DEMO_AGENT = "demo_agent"  # 11：DemoAgent LLM 调用角色（fusion 映射不动）
     VERIFIER = "verifier"  # 05：verifier LLM 判定调用；fusion 映射表无此角色（无融合通道）
 
 
