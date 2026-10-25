@@ -1,6 +1,6 @@
 # 项目构建 Agent（Project Agent）
 
-一个 CLI 形态的 LangGraph 应用：用户丢进一个想法，agent 通过 grilling 式问答增量构建项目文档，期间可随时旁路提问学习，最终可生成 demo。核心动机是"构建与学习并行、上下文互不污染、token 花在刀刃上"。
+一个本地 LangGraph 应用：用户丢进一个想法，agent 通过 grilling 式问答增量构建项目文档，期间可随时旁路提问学习，最终可生成 demo。核心动机是"构建与学习并行、上下文互不污染、token 花在刀刃上"。v2.0 起为**双运行时**形态——终端外观由 TS/Ink 前端提供，图与状态在 Python 后端（ADR-0005）。
 
 ## Language
 
@@ -33,8 +33,20 @@ _Avoid_: 智能路由、自动分发
 _Avoid_: agent（泛称）、worker、子agent
 
 **REPL 宿主 (REPL Host)**:
-应用外壳层——终端 I/O、斜杠路由、断点持有、shell 审批回调、本地账单。
+**后端**侧的交互外壳层——终端 I/O、斜杠路由、断点持有、shell 审批回调、本地账单。
 _Avoid_: 前端、壳层、CLI框架
+
+**前端 (Frontend)**:
+TS + React 19 + Ink 渲染运行时——消费协议消息、渲染断点与面板、采集按键，**不持有业务状态**。
+_Avoid_: 界面层、UI 层、客户端
+
+**后端 (Backend)**:
+Python 运行时——REPL 宿主、主工作流图、旁路问答、账单与落盘；协议的服务侧。
+_Avoid_: 服务端、server
+
+**双运行时 (Dual Runtime)**:
+前后端分进程、只经协议消息对话的形态（ADR-0005）；接缝预算钉死为只新增"前端↔后端"一条。
+_Avoid_: 前后端分离（泛称）、微服务
 
 **主工作流图 (Main Workflow Graph)**:
 从 ask_tasks 到 FINISH 的单一大图，含 planner→actor→verifier 主环。
@@ -105,6 +117,40 @@ _Avoid_: 全局上下文、黑板、黑板板
 **AskAgent 双通道**:
 AskAgent 的两条调用路径——REPL 旁路直答（拉式问答）与图内新手指引注入（推式教学）。
 _Avoid_: 双agent、分身
+
+**teach-me（深度教学）**:
+指引的三选形态之外的重形态——单发调用生成一页自包含 HTML 教学页（概念清单可勾选），落盘 `teach-me/R{n}/index.html`，无历史累积。
+_Avoid_: 教程、文档、课件
+
+**讲解 (Guidance)**:
+每轮构建后附给用户的那段"为什么这么做"说明；三态（auto/ask/off）决定打扰程度。
+_Avoid_: 指引、提示、note（Note 是 Notepad 条目）
+
+**四选 (Guidance Ask)**:
+ask 档每轮的四选断点——简短讲解 / 深度教学 / 跳过 / 以后都深度教学。
+_Avoid_: 讲解询问、教学选择
+
+**可读性契约 (Readability Contract)**:
+所有提问与选项一律"主体 —— 一句话解释"两段式；主体加粗、解释缩进、选项编号；非 TTY 退化为纯文本。
+_Avoid_: 文案规范、排版规范
+
+### 运行时与配置
+
+**配置窗口 (Config Window)**:
+应用级首启的 tkinter 单窗——主模型 / API key / base URL / 子模型 / 决策模式开关 / 测试连接按钮；不可用即退终端问卷。
+_Avoid_: 首启问卷（那是项目级的）、设置页
+
+**测试连接 (Connection Test)**:
+配置窗口中的 1-token ping——2xx 即通，不阻塞保存。
+_Avoid_: 连通性检查、健康检查
+
+**种子注入 (Seed Injection)**:
+REPL 首条输入随行并入仪表盘无值字段（decision_mode 来自配置窗口、skill_packs 默认 `["default"]`），仅生效一次。
+_Avoid_: 初始化、预设、默认值
+
+**engine**:
+唯一启动命令（旧名 `project-agent` 废弃）；`pipx` 分发。
+_Avoid_: 入口脚本、CLI 名
 
 ### 工具与权限
 
