@@ -50,10 +50,11 @@ BREAKPOINT_PROTOCOL: dict[RoundEndReason, BreakpointSpec] = {
         Fusion.MAINLINE, ("round_output", "todo_board")
     ),
     RoundEndReason.QUESTION: BreakpointSpec(
-        Fusion.ASKER, ("question_text", "options", "asker")
+        Fusion.ASKER, ("question_text", "explanation", "options", "asker")
     ),
     RoundEndReason.CHOICE_BUILD_WAY: BreakpointSpec(
-        Fusion.RESOLUTION, ("options", "recommendation", "recommendation_reason")
+        Fusion.RESOLUTION,
+        ("explanation", "options", "recommendation", "recommendation_reason"),
     ),
     RoundEndReason.CHOICE_PROPOSAL: BreakpointSpec(
         Fusion.RESOLUTION, ("proposal_summaries",)

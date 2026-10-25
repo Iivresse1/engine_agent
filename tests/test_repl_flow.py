@@ -67,10 +67,11 @@ def test_repl_session_rounds_slash_and_status(workspace):
     out = "\n".join(io.outputs)
     # 非斜杠输入进主图，断点渲染
     assert "断点 · round" in out
-    # 四问渲染
+    # 四问渲染（13 票：question 断点专属渲染——主体/解释/编号选项）
     assert "断点 · question" in out
-    assert "你的编程基础？" in out
-    assert "我不了解编程" in out  # Q1 选项
+    assert "你的编程基础" in out
+    assert "这会影响讲解的详略和术语的密度" in out
+    assert "编程新手" in out  # Q1 选项主体
     # /status 展示仪表盘
     assert "task_brief: 我想做一个记账 CLI" in out
     assert "user_mode: novice" in out

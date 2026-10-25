@@ -227,6 +227,13 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **分发**：pipx；命令名 `engine`；远端仓 https://github.com/Iivresse1/engine_agent.git（首推 main=当前版本）。
 - **冒烟产物防再污染**：.gitignore +BUILD_LOG.md/NOTES.md（自托管冒烟 workspace_root=cwd 会落盘生成物；2aade20 曾误入 BUILD_LOG.md，c03edf2 amend 清除）。
 
+**Q66（13 票 teach-me + 文案润色，2026-10-25 晚，839 绿零警告）**：
+- **teach-me 技能**（用户提案）：ask 模式指引询问真断点化（四选：简短讲解/深度教学/跳过/以后都深度教学——spec L208"ask 档指引询问"本义回填，10 票贴标签实现升级）；选"以后都"写 teach_me_pref=always 后每轮直达；auto 恒普通指引（用户裁定）；HTML 教学页落盘 teach-me/R{n}/index.html（自包含、概念勾选存 localStorage，用户裁定）+ learner-profile.md/session.md 纯代码维护（已掌握概念不重教）。
+- **文案全量润色**（用户："可读性非常差，看到会生气"）：全部提问点改"主体 —— 解释"式（DSH 断点风格）；question/choice:build_way payload +explanation 必填；rendering.py 三层渲染（主体加粗，TTY 判定退化）；docs_done 否定词误吞修复（长选项"生成不运行"含"不"字——改整词集合+单字等值判定）。
+- **brief 掉落语义钉板**：选"简短讲解"的那一轮走 auto 同款普通指引（guidance_ask_consumed 局部标志防后置重问）——用户已当场决定"要"，再问即骚扰。
+- **teach-me 历史考据修正**：claude-code-best 仓的 teach-me/ 目录实测为 markdown 笔记（learner-profile/session/notes），HTML 之说来自社区 codebase-to-course 先例；产物 HTML 形态为用户裁定。无 License 仓只学模式不抄码。
+- 实现细节：+43 测试（821→839）；teach_me.py/rendering.py 新模块；spec v1.6 回填（question/choice:build_way +explanation、仪表盘 +teach_me_pref）。
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）

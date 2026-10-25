@@ -40,7 +40,10 @@ def test_docs_done_breakpoint_payload_shape():
     assert updates["turn_end_reason"] == "docs_done"
     payload = updates["turn_end_payload"]
     assert set(payload) == {"deliverables_overview", "options"}
-    assert payload["options"] == ["构建 demo", "跳过"]
+    assert payload["options"] == [
+        "构建 demo —— 生成可运行的基础示例（生成不运行，报错你来贴）",
+        "跳过 —— 直接进入收尾整理",
+    ]
     # way3 三份交付物：概览含份数与文件名
     assert "交付物集 3 份已就绪" in payload["deliverables_overview"]
     assert "README.md" in payload["deliverables_overview"]
@@ -88,7 +91,10 @@ def test_unmatched_resolution_resends_docs_done_payload():
         turn_end_reason="docs_done",
         turn_end_payload={
             "deliverables_overview": "交付物集 3 份已就绪（README.md, TODO.md, 目录树.txt）",
-            "options": ["构建 demo", "跳过"],
+            "options": [
+                "构建 demo —— 生成可运行的基础示例（生成不运行，报错你来贴）",
+                "跳过 —— 直接进入收尾整理",
+            ],
         },
     )
     updates = docs_done_node(state)
@@ -105,7 +111,10 @@ def test_unmatched_resolution_rebuilds_payload_when_stale():
         turn_end_payload={"bogus": "x"},
     )
     updates = docs_done_node(state)
-    assert updates["turn_end_payload"]["options"] == ["构建 demo", "跳过"]
+    assert updates["turn_end_payload"]["options"] == [
+        "构建 demo —— 生成可运行的基础示例（生成不运行，报错你来贴）",
+        "跳过 —— 直接进入收尾整理",
+    ]
     assert "demo_phase" not in updates
 
 
@@ -116,7 +125,10 @@ def test_graph_entry_row7_reaches_docs_done_breakpoint():
     app = build_graph(checkpointer=InMemorySaver())
     r = app.invoke(_base_state(), _cfg("g-docs-1"))
     assert r["turn_end_reason"] == "docs_done"
-    assert r["turn_end_payload"]["options"] == ["构建 demo", "跳过"]
+    assert r["turn_end_payload"]["options"] == [
+        "构建 demo —— 生成可运行的基础示例（生成不运行，报错你来贴）",
+        "跳过 —— 直接进入收尾整理",
+    ]
     assert "交付物集 3 份已就绪" in r["turn_end_payload"]["deliverables_overview"]
 
 

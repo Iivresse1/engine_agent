@@ -29,8 +29,12 @@ def test_first_entry_asks_q1_when_no_question_pending():
     updates = ask_tasks_node(state)
     assert updates["turn_end_reason"] == "question"
     payload = updates["turn_end_payload"]
-    assert payload["question_text"] == "你的编程基础？"
-    assert payload["options"] == ["有一定编程基础", "我不了解编程"]
+    assert payload["question_text"] == "你的编程基础 —— 决定 agent 用多大深度和你沟通"
+    assert payload["explanation"] == "这会影响讲解的详略和术语的密度"
+    assert payload["options"] == [
+        "有编程经验 —— 看得懂代码，直接谈实现",
+        "编程新手 —— 需要逐步解释每一步在做什么",
+    ]
     assert payload["asker"] == "actor"
     assert updates["awaiting_input_from"] == "actor"
     assert "task_brief" not in updates  # 想法不当答案也不写简报
@@ -51,9 +55,14 @@ def test_answer_to_pending_question_writes_field_then_asks_next():
     assert updates["turn_end_reason"] == "question"
     # novice 落盘后问 Q2：问题文本追加 novice_hint
     assert (
-        updates["turn_end_payload"]["question_text"] == "希望新手指引如何运作？；新手推荐 1"
+        updates["turn_end_payload"]["question_text"]
+        == "新手指引 —— 构建过程中要不要配讲解（新手推荐选 1）"
     )
-    assert updates["turn_end_payload"]["options"] == ["自动每轮", "每轮询问", "关"]
+    assert updates["turn_end_payload"]["options"] == [
+        "自动讲解 —— 每轮自动附带一段说明",
+        "每轮问我 —— 讲不讲由我当场决定",
+        "关闭 —— 不需要讲解",
+    ]
 
 
 def test_novice_gets_hint_appended_on_q2():
@@ -65,7 +74,7 @@ def test_novice_gets_hint_appended_on_q2():
         guidance_pref=None,
     )
     updates = ask_tasks_node(state)
-    assert "新手推荐 1" in updates["turn_end_payload"]["question_text"]
+    assert "新手推荐选 1" in updates["turn_end_payload"]["question_text"]
 
 
 def test_all_four_answered_writes_task_brief_from_first_human_message():
@@ -101,7 +110,7 @@ def test_uninterpretable_answer_reasks_same_question_idempotently():
     )
     updates = ask_tasks_node(state)
     assert updates["turn_end_reason"] == "question"
-    assert updates["turn_end_payload"]["question_text"] == "你的编程基础？"
+    assert updates["turn_end_payload"]["question_text"] == "你的编程基础 —— 决定 agent 用多大深度和你沟通"
     for field in ("user_mode", "guidance_pref", "decision_mode", "skill_packs", "task_brief"):
         assert field not in updates
 
@@ -125,7 +134,7 @@ def test_empty_string_answer_is_unset():
     """空串视同未设：下一题仍是当前字段。"""
     state = _state(turn_end_reason="question", user_mode="", guidance_pref=None)
     updates = ask_tasks_node(state)
-    assert updates["turn_end_payload"]["question_text"] == "你的编程基础？"
+    assert updates["turn_end_payload"]["question_text"] == "你的编程基础 —— 决定 agent 用多大深度和你沟通"
 
 
 def test_non_question_followup_asks_first_unset():
@@ -138,4 +147,7 @@ def test_non_question_followup_asks_first_unset():
     )
     updates = ask_tasks_node(state)
     # novice 且问的是 Q2 → 追加新手推荐提示
-    assert updates["turn_end_payload"]["question_text"] == "希望新手指引如何运作？；新手推荐 1"
+    assert (
+        updates["turn_end_payload"]["question_text"]
+        == "新手指引 —— 构建过程中要不要配讲解（新手推荐选 1）"
+    )

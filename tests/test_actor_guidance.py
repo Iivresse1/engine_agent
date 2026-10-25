@@ -77,13 +77,43 @@ def test_actor_guidance_gate_false_zero_injection(tmp_path):
     assert "guidance_read_version" not in updates
 
 
-def test_actor_ask_mode_prefixes_guidance(tmp_path):
-    """guidance_mode=ask：同一材料包逻辑，指引文本前缀 [指引询问]。"""
+def test_actor_ask_mode_emits_guidance_question_breakpoint(tmp_path):
+    """13 票：guidance_mode=ask 发四选 question 断点（spec L208 本义回填）。
+
+    版本门通过 → 不再贴 [指引询问] 前缀，改发 question 断点；
+    版本对齐照写；答案下轮由 actor 起手解释（见 test_teach_me.py）。
+    """
     docs = _docs(tmp_path)
-    model = ScriptedModel(["actor 产出文本", GUIDANCE_TEXT])
+    model = ScriptedModel(["actor 产出文本"])
     node = make_actor_node(model, shared_docs=docs)
     updates = node(_state("ask"), _cfg())
-    assert updates["turn_end_payload"]["round_output"].endswith(f"[指引询问] {GUIDANCE_TEXT}")
+    assert updates["turn_end_reason"] == "question"
+    payload = updates["turn_end_payload"]
+    assert payload["question_text"] == "本轮讲解 —— 要为这轮的产出配一段讲解吗？"
+    assert len(payload["options"]) == 4
+    assert payload["options"][3] == "以后都深度教学 —— 之后每轮自动生成教学页，不再询问"
+    assert payload["asker"] == "actor"
+    assert updates["awaiting_input_from"] == "actor"
+    assert updates["guidance_read_version"] == 2  # 读毕对齐照写
+    assert len(model.calls) == 1  # 只 actor 本体调用：指引文本此刻不生成
+
+
+def test_actor_ask_mode_teach_me_always_generates_page(tmp_path):
+    """teach_me_pref=always（ask 模式决议过"以后都"）：直接 teach-me 不再询问。"""
+    docs = _docs(tmp_path)
+    model = ScriptedModel(["actor 产出文本", "<html>教学页</html>"])
+    node = make_actor_node(model, shared_docs=docs)
+    state = _state("ask")
+    state["teach_me_pref"] = "always"
+    updates = node(state, _cfg())
+    assert updates["turn_end_reason"] == "round"
+    assert "教学页已生成：teach-me/R3/index.html" in updates["turn_end_payload"][
+        "round_output"
+    ]
+    teach_calls = [call for call in model.calls if call["role"] == "ask_agent"]
+    assert len(teach_calls) == 1
+    material = teach_calls[0]["messages"][0]["content"]
+    assert "页面式深度教学" in material  # teach-me skill body 注入
 
 
 def test_actor_guidance_off_zero_guidance(tmp_path):
