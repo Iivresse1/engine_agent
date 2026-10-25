@@ -1,11 +1,19 @@
-"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底。"""
+"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底。
+
+11 票：输入进图前三层混合路由（hybrid_router.route_input）——仅 demo 构建中
+（last_state.demo_phase=="building"）启用；报错回传融合进 demo_messages 并
+demo_loop_count++，其余输入走既有 fusion_update 原路径。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+
 from project_agent.config import IO
 from project_agent.fusion import fusion_update
+from project_agent.hybrid_router import route_input
 from project_agent.nodes import run_compression_check
 
 _BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
