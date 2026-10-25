@@ -1,7 +1,35 @@
-"""骨架节点：ask_tasks / build_ways（choice:build_way 断点流）/ guidance_trigger / planner。
+"""图节点集合（14 节点家族 + 压缩横切）。按相位导航——定位先抓函数名：
 
-全部可重入：已写字段不再改写（断点续跑下轮重进不重复副作用）。
-build_ways 由 make_build_ways_node(model) 工厂构造——model=None 走静态推荐。
+入口相位
+  ask_tasks_node         首启问卷断点流
+  make_build_ways_node   构建方式选择断点（model=None 走静态推荐）
+  make_proposals_node    way4 三方案并行断点
+  guidance_trigger_node  新手指引模式映射（纯配置，只写 guidance_mode）
+
+主环相位（Q61 轮次节律：assembler→actor→verifier，verifier→planner 唯一回边）
+  planner_node           todo 板播种/重规划（纯代码）
+  make_assembler_node    轮始上下文组装（五段 + 版本门 + 工具子集声明）
+  make_actor_node        执行者（way1 直答 / way2-4 grilling 身体；指令桥
+                        解析：写入/记录/完成/技能/推荐技能/运行）
+  make_verifier_node     轮间检查闸门（LLM 判内容，代码管路由）
+  loop_exhausted_node    环计数耗尽断点
+
+demo 相位（生成不运行）
+  docs_done_node         demo 决议断点（纯代码）
+  make_demo_agent_node   demo 生成 + 运行指南 + 报错回传调试
+
+终检相位
+  make_finalizer_node    收尾整理产 final_report（Store 可选）
+  make_check_node        check_proper_output 终检管线（剥【R#】+对账+双交付）
+
+压缩横切（Q54 挂点核心）
+  run_compression_check  统一压缩检查（纯函数，无 state 依赖）
+  with_compression       节点包装器（actor/verifier/assembler/demo 四挂点）
+
+共享断点助手在文件头部（_choice_breakpoint/_round_end/_question_breakpoint）；
+_reuse_payload 位于 demo 相位区但服务全部决议断点（payload 复用统一入口）。
+
+全部节点可重入：已写字段不再改写（断点续跑下轮重进不重复副作用）。
 """
 
 from __future__ import annotations
