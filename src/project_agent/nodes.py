@@ -12,6 +12,7 @@ from typing import Any, Mapping, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from project_agent.ask_agent import build_guidance
 from project_agent.compression import (
     DEFAULT_BUDGET_TOKENS,
     CompactionPack,
@@ -934,6 +935,25 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
         round_text = _delivery_output(text, shared_docs)
         if rejected_writes:
             round_text = f"{round_text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
+        # 10：图内新手指引后置工序——版本门（差>0）+ 材料包单发；
+        # 指引文本只进 round_output 尾部，节点写 guidance_read_version 对齐。
+        guidance_mode = state.get("guidance_mode")
+        if shared_docs is not None and guidance_mode in ("auto", "ask"):
+            notes_version = int(updates.get("notes_version") or 0)
+            if guidance_gate(
+                notes_version, int(state.get("guidance_read_version") or 0)
+            ):
+                latest_round = int(updates.get("round_count") or 0)
+                guidance_text = build_guidance(
+                    model,
+                    round_summary=round_summary,
+                    notes=shared_docs.notepad_entries(),
+                    doc_slice=shared_docs.read_round(latest_round) or "",
+                    thread_id=_thread_id_from(config),
+                )
+                prefix = "[指引询问] " if guidance_mode == "ask" else ""
+                round_text = f"{round_text}\n{prefix}{guidance_text}"
+                updates["guidance_read_version"] = align_guidance_read(notes_version)
         updates.update(_round_end(round_text, {**state, "todos": new_todos}))
         return updates
 

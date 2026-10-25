@@ -1,5 +1,6 @@
-"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底。
+"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底、/ask-for-help 旁路。
 
+10 票：/ask-for-help 旁路（AskBypass 独立历史，图外作答不写 state）。
 11 票：输入进图前三层混合路由（hybrid_router.route_input）——仅 demo 构建中
 （last_state.demo_phase=="building"）启用；报错回传融合进 demo_messages 并
 demo_loop_count++，其余输入走既有 fusion_update 原路径。
@@ -11,6 +12,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
+from project_agent.ask_agent import AskBypass
 from project_agent.config import IO
 from project_agent.fusion import fusion_update
 from project_agent.hybrid_router import route_input
@@ -20,9 +22,11 @@ _BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
 _FAREWELL = "再见"
 _TERMINAL_NOTICE = "构建已完成（终态）。输入 /exit 退出。"
 _COMPACT_NOT_ENABLED = "压缩未启用（需 --cheap-model 接线）"
+_ASK_OUTSIDE_WORKFLOW = "仅项目工作流内可用"
+_ASK_NOT_WIRED = "旁路未接线（需 model）"
 
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
-_COMMANDS = ("/help", "/status", "/compact", "/exit")
+_COMMANDS = ("/help", "/status", "/compact", "/ask-for-help", "/exit")
 
 _STATUS_FIELDS = (
     "task_brief",
@@ -46,6 +50,7 @@ class ReplHost:
         cheap_model: Any = None,
         shared_docs: Any = None,
         error_classifier: Any = None,
+        ask_bypass: AskBypass | None = None,
     ) -> None:
         self._app = app
         self._io = io
@@ -53,6 +58,7 @@ class ReplHost:
         self._last_state: dict[str, Any] = {}
         self._cheap_model = cheap_model
         self._shared_docs = shared_docs
+        self._ask_bypass = ask_bypass
         # 11：窄分类兜底模型（ModelClient 形态；None → 层 3 默认 normal）
         self._error_classifier = error_classifier
         # /compact 产生的待并压缩批：下轮 invoke 携带进图（经 add_messages
@@ -90,8 +96,28 @@ class ReplHost:
         if command == "/compact":
             self._compact()
             return False
+        if command == "/ask-for-help":
+            self._ask_for_help(text)
+            return False
         self._io.write_line(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
+
+    def _ask_for_help(self, text: str) -> None:
+        """10 票旁路：/ask-for-help {question}——AskBypass 独立历史作答。
+
+        仅项目工作流内（build_way 已设）可用；不进主图不写 state。
+        """
+        question = text[len("/ask-for-help"):].strip()
+        if not self._last_state.get("build_way"):
+            self._io.write_line(_ASK_OUTSIDE_WORKFLOW)
+            return
+        if self._ask_bypass is None:
+            self._io.write_line(_ASK_NOT_WIRED)
+            return
+        if not question:
+            self._io.write_line("用法：/ask-for-help {问题}")
+            return
+        self._io.write_line(self._ask_bypass.ask(question))
 
     def _compact(self) -> None:
         """/compact 手动兜底（08 票）：立即触发等价压缩（manual=True）。
