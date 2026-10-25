@@ -43,6 +43,21 @@ class SharedDocs:
         path.write_text(content, encoding="utf-8")
         return True
 
+    # —— DemoAgent 生成物（11 票：demo 文件名自由，无白名单）——
+
+    def write_any(self, path_rel: str, content: str) -> bool:
+        """写任意相对路径生成物（DemoAgent 专用）：root/path_rel UTF-8 覆写。
+
+        无交付物白名单（ADR-0003：demo 文件自由命名）；安全底线只有一条：
+        路径含 ".." → 零写入零异常，返回 False（不越出工作区）。
+        """
+        if not path_rel or ".." in path_rel:
+            return False
+        path = self.root / path_rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return True
+
     # —— 轮次生成物（BUILD_LOG.md）——
 
     def append_round_entry(

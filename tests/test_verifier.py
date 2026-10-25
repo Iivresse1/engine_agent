@@ -188,10 +188,10 @@ def test_entry_route_row5_cleared_and_not_complete_to_planner():
     assert entry_route(state) == PLANNER
 
 
-def test_entry_route_row7_task_complete_true_to_end():
-    """行 7：task_complete 真 → END（05 放行，终检票接管）。"""
+def test_entry_route_row7_task_complete_true_to_docs_done():
+    """行 7（11 改道）：task_complete 真 → docs_done（demo 决议断点）。"""
     state = {"task_brief": "x", "build_way": "way1", "todos": TWO_DONE, "task_complete": True}
-    assert entry_route(state) == END
+    assert entry_route(state) == "docs_done"
 
 
 def test_entry_route_count5_rows_edge_cases():
@@ -236,7 +236,7 @@ def test_entry_route_count5_rows_edge_cases():
 
 
 def test_entry_route_row7_beats_count5():
-    """行 7（task_complete 真+计数<5）→ END。"""
+    """行 7（11 改道）：task_complete 真+计数<5 → docs_done。"""
     assert (
         entry_route(
             {
@@ -247,7 +247,7 @@ def test_entry_route_row7_beats_count5():
                 "main_loop_count": 4,
             }
         )
-        == END
+        == "docs_done"
     )
 
 

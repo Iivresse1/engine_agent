@@ -1,20 +1,32 @@
-"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底。"""
+"""REPL 宿主：终端 I/O、斜杠路由（零 LLM）、断点持有与渲染、/compact 手动压缩兜底、/ask-for-help 旁路。
+
+10 票：/ask-for-help 旁路（AskBypass 独立历史，图外作答不写 state）。
+11 票：输入进图前三层混合路由（hybrid_router.route_input）——仅 demo 构建中
+（last_state.demo_phase=="building"）启用；报错回传融合进 demo_messages 并
+demo_loop_count++，其余输入走既有 fusion_update 原路径。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+
+from project_agent.ask_agent import AskBypass
 from project_agent.config import IO
 from project_agent.fusion import fusion_update
+from project_agent.hybrid_router import route_input
 from project_agent.nodes import run_compression_check
 
 _BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
 _FAREWELL = "再见"
 _TERMINAL_NOTICE = "构建已完成（终态）。输入 /exit 退出。"
 _COMPACT_NOT_ENABLED = "压缩未启用（需 --cheap-model 接线）"
+_ASK_OUTSIDE_WORKFLOW = "仅项目工作流内可用"
+_ASK_NOT_WIRED = "旁路未接线（需 model）"
 
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
-_COMMANDS = ("/help", "/status", "/compact", "/exit")
+_COMMANDS = ("/help", "/status", "/compact", "/ask-for-help", "/exit")
 
 _STATUS_FIELDS = (
     "task_brief",
@@ -37,6 +49,8 @@ class ReplHost:
         *,
         cheap_model: Any = None,
         shared_docs: Any = None,
+        error_classifier: Any = None,
+        ask_bypass: AskBypass | None = None,
     ) -> None:
         self._app = app
         self._io = io
@@ -44,6 +58,9 @@ class ReplHost:
         self._last_state: dict[str, Any] = {}
         self._cheap_model = cheap_model
         self._shared_docs = shared_docs
+        self._ask_bypass = ask_bypass
+        # 11：窄分类兜底模型（ModelClient 形态；None → 层 3 默认 normal）
+        self._error_classifier = error_classifier
         # /compact 产生的待并压缩批：下轮 invoke 携带进图（经 add_messages
         # reducer 归约——否则 checkpointer 里的历史永远未压）
         self._pending_compression: dict[str, Any] | None = None
@@ -79,8 +96,28 @@ class ReplHost:
         if command == "/compact":
             self._compact()
             return False
+        if command == "/ask-for-help":
+            self._ask_for_help(text)
+            return False
         self._io.write_line(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
+
+    def _ask_for_help(self, text: str) -> None:
+        """10 票旁路：/ask-for-help {question}——AskBypass 独立历史作答。
+
+        仅项目工作流内（build_way 已设）可用；不进主图不写 state。
+        """
+        question = text[len("/ask-for-help"):].strip()
+        if not self._last_state.get("build_way"):
+            self._io.write_line(_ASK_OUTSIDE_WORKFLOW)
+            return
+        if self._ask_bypass is None:
+            self._io.write_line(_ASK_NOT_WIRED)
+            return
+        if not question:
+            self._io.write_line("用法：/ask-for-help {问题}")
+            return
+        self._io.write_line(self._ask_bypass.ask(question))
 
     def _compact(self) -> None:
         """/compact 手动兜底（08 票）：立即触发等价压缩（manual=True）。
@@ -110,6 +147,26 @@ class ReplHost:
         self._io.write_line(f"已压缩 {covered} 轮（{len(packs)} 包）；磁盘【R#】原文不受影响。")
 
     def _run_turn(self, text: str) -> None:
+        # 11：demo 构建中的输入先过三层混合路由（斜杠已在 run() 前分流）
+        if self._last_state.get("demo_phase") == "building":
+            route = route_input(
+                text,
+                last_state=self._last_state,
+                error_classifier=self._error_classifier,
+            )
+            if route == "error_return":
+                # 报错回传：融合进 demo_messages 进修复环；demo 环计数++（封顶 5）
+                self._invoke_turn(
+                    {
+                        "demo_messages": [HumanMessage(content=text)],
+                        "demo_loop_count": int(
+                            self._last_state.get("demo_loop_count") or 0
+                        )
+                        + 1,
+                    }
+                )
+                return
+
         update = fusion_update(self._last_state, text)
         if not update:
             # FINISHED 终态（01 欠账 b）：不再融合不再 invoke
@@ -124,6 +181,9 @@ class ReplHost:
             merged_batch.extend(update.get("actor_messages") or [])
             update = dict(pending)
             update["actor_messages"] = merged_batch
+        self._invoke_turn(update)
+
+    def _invoke_turn(self, update: dict[str, Any]) -> None:
         result = dict(self._app.invoke(update, self._config))
         self._last_state = result
 

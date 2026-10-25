@@ -3,9 +3,12 @@
 02 票：真值表 +问卷两行（部分填写→ask_tasks；task_brief 已设+字段缺→build_ways）。
 05 票：行 3——todos 空→planner；行 4——todos 未清→context_assembler（主环）；
 行 5——todos 清且 task_complete 假→planner（耗尽恢复：planner 见 count>=5 清零）；
-行 6——任一环计数>=5→loop_exhausted；行 7——task_complete 真→END（05 放行）。
+行 6——任一环计数>=5→loop_exhausted；行 7——task_complete 真→docs_done（11 改道）。
 07 票：新行插在行 3 前——way4 且 selected_proposal 未设且 todos 未设 →
 PROPOSALS（三方案并行先于计划）。
+11 票：行 7 由 END 改道 DOCS_DONE（demo 决议断点）；行 7 前插 demo 行——
+task_complete 真且 demo_phase=="building" → DEMO_AGENT（报错回传环入口；
+demo 环计数>=5 由行 6 先行压过）。
 行序即优先级；guidance_trigger 相位由 build_ways 条件边接入（非 START 路由）。
 """
 
@@ -23,6 +26,8 @@ PLANNER = "planner"
 CONTEXT_ASSEMBLER = "context_assembler"
 ACTOR = "actor"
 VERIFIER = "verifier"
+DOCS_DONE = "docs_done"
+DEMO_AGENT = "demo_agent"
 LOOP_EXHAUSTED = "loop_exhausted"
 
 END_MAP: dict[str, str] = {
@@ -31,6 +36,8 @@ END_MAP: dict[str, str] = {
     PROPOSALS: PROPOSALS,
     PLANNER: PLANNER,
     CONTEXT_ASSEMBLER: CONTEXT_ASSEMBLER,
+    DOCS_DONE: DOCS_DONE,
+    DEMO_AGENT: DEMO_AGENT,
     LOOP_EXHAUSTED: LOOP_EXHAUSTED,
 }
 
@@ -115,7 +122,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         },
         LOOP_EXHAUSTED,
     ),
-    # 05 行 7：task_complete 真 → END（05 放行，终检票接管）
+    # 05 行 7：task_complete 真 → docs_done（11 改道：demo 决议断点；终检票接管前哨）
     (
         {
             "task_brief": "x",
@@ -123,7 +130,41 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
         },
-        END,
+        DOCS_DONE,
+    ),
+    # 11 demo 行（行 7 前）：demo 构建中 + task_complete 真 → DEMO_AGENT（报错回传环入口）
+    (
+        {
+            "task_brief": "x",
+            "build_way": "way1",
+            "todos": [{"content": "a", "status": "completed"}],
+            "task_complete": True,
+            "demo_phase": "building",
+        },
+        DEMO_AGENT,
+    ),
+    # 11 行 6 压过 demo 行：demo 环计数>=5 → LOOP_EXHAUSTED（报错环封顶）
+    (
+        {
+            "task_brief": "x",
+            "build_way": "way1",
+            "todos": [{"content": "a", "status": "completed"}],
+            "task_complete": True,
+            "demo_phase": "building",
+            "demo_loop_count": 5,
+        },
+        LOOP_EXHAUSTED,
+    ),
+    # 11 skipped：已跳过 demo → DOCS_DONE 幂等收轮（直通终检，12 票接管）
+    (
+        {
+            "task_brief": "x",
+            "build_way": "way1",
+            "todos": [{"content": "a", "status": "completed"}],
+            "task_complete": True,
+            "demo_phase": "skipped",
+        },
+        DOCS_DONE,
     ),
 ]
 
@@ -162,8 +203,31 @@ def entry_route(dashboard: Mapping[str, Any]) -> str:
         (dashboard.get(key) or 0) >= 5
         for key in ("main_loop_count", "demo_loop_count", "final_check_loop_count")
     ):
-        return LOOP_EXHAUSTED  # 行 6：任一环计数>=5
-    return END  # 行 7：task_complete 真→END（05 放行，终检票接管）
+        return LOOP_EXHAUSTED  # 行 6：任一环计数>=5（demo 报错环封顶在此先行）
+    if dashboard.get("demo_phase") == "building":
+        return DEMO_AGENT  # 11 行 7 前：demo 构建中（报错回传环入口）
+    return DOCS_DONE  # 行 7（11 改道）：task_complete 真→demo 决议断点
+
+
+def _after_docs_done(state: Mapping[str, Any]) -> str:
+    """docs_done 出口条件边（11 票终裁 A，纯函数）：三态路由。
+
+    demo_phase=="building" → DEMO_AGENT（同轮接 demo，turn_end 由后节点写）；
+    "skipped" / 未决（断点收轮）→ END。
+    """
+    if state.get("demo_phase") == "building":
+        return DEMO_AGENT
+    return END
+
+
+def _after_demo(state: Mapping[str, Any]) -> str:
+    """DEMO_AGENT 出口条件边（11 票终裁 B，纯函数）。
+
+    计数封顶优先：demo_loop_count>=5 → LOOP_EXHAUSTED（报错环耗尽）；
+    否则 END（每轮一个修复回合，断点收轮）。"""
+    if int(state.get("demo_loop_count") or 0) >= 5:
+        return LOOP_EXHAUSTED
+    return END
 
 
 def _after_verifier(state: Mapping[str, Any]) -> str:

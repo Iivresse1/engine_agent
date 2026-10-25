@@ -17,11 +17,13 @@ from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
     ask_tasks_node,
+    docs_done_node,
     guidance_trigger_node,
     loop_exhausted_node,
     make_assembler_node,
     make_actor_node,
     make_build_ways_node,
+    make_demo_agent_node,
     make_proposals_node,
     make_verifier_node,
     planner_node,
@@ -32,14 +34,18 @@ from project_agent.routing import (
     ASK_TASKS,
     BUILD_WAYS,
     CONTEXT_ASSEMBLER,
+    DEMO_AGENT,
+    DOCS_DONE,
     END_MAP,
     GUIDANCE_TRIGGER,
     LOOP_EXHAUSTED,
     PLANNER,
     PROPOSALS,
     VERIFIER,
-    route_from_start,
+    _after_demo,
+    _after_docs_done,
     _after_verifier,
+    route_from_start,
 )
 from project_agent.state import GraphState
 from project_agent.shared_docs import SharedDocs
@@ -68,7 +74,8 @@ def build_graph(
 
     08：cheap_model 非 None → actor/verifier/assembler 三节点包
     with_compression（Q54 模型调用前统一压缩检查；planner 无 LLM 调用
-    不挂，demo 轮属后续票）；None → 裸节点（基线零回归）。"""
+    不挂）；11 票补第四挂点 DEMO_AGENT（读 demo_messages 私有历史）。
+    None → 裸节点（基线零回归）。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
@@ -110,6 +117,18 @@ def build_graph(
         else make_verifier_node(model),
     )
     graph.add_node(LOOP_EXHAUSTED, loop_exhausted_node)
+    # 11：docs_done 决议断点（纯代码）+ DemoAgent（生成不运行；cheap_model
+    # 非 None 时第四挂点——压缩检查读 demo_messages 私有历史）
+    graph.add_node(DOCS_DONE, docs_done_node)
+    demo_node = make_demo_agent_node(model, shared_docs=shared_docs)
+    if cheap_model is not None:
+        demo_node = with_compression(
+            demo_node,
+            cheap_model=cheap_model,
+            shared_docs=shared_docs,
+            messages_key="demo_messages",
+        )
+    graph.add_node(DEMO_AGENT, demo_node)
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
@@ -121,6 +140,19 @@ def build_graph(
     )
     graph.add_edge(GUIDANCE_TRIGGER, END)
     graph.add_edge(PLANNER, END)
+    # 11：docs_done 三态出口——building 同轮接 DEMO_AGENT；skipped/未决收轮
+    graph.add_conditional_edges(
+        DOCS_DONE,
+        _after_docs_done,
+        {DEMO_AGENT: DEMO_AGENT, END: END},
+    )
+    # 11：demo 出口——计数封顶优先，否则收轮（每轮一个修复回合）
+    graph.add_conditional_edges(
+        DEMO_AGENT,
+        _after_demo,
+        {LOOP_EXHAUSTED: LOOP_EXHAUSTED, END: END},
+    )
+    graph.add_edge(LOOP_EXHAUSTED, END)
     # 主环：assembler→actor→verifier→（计数/双过/未清/清而未过）→END|PLANNER|LOOP_EXHAUSTED
     graph.add_edge(CONTEXT_ASSEMBLER, ACTOR)
     if model is None:
@@ -134,7 +166,6 @@ def build_graph(
             _after_verifier,
             {LOOP_EXHAUSTED: LOOP_EXHAUSTED, END: END, PLANNER: PLANNER},
         )
-        graph.add_edge(LOOP_EXHAUSTED, END)
 
     # REPL 宿主始终带 checkpointer（无持久化就没有断点续跑）
     if checkpointer is None:
