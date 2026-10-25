@@ -23,6 +23,7 @@ DONE_TODOS = [{"content": "写 README", "status": "completed"}]
 SEED = {
     "task_brief": "做个记账 CLI",
     "build_way": "way3",
+    "guidance_pref": "auto",
     "todos": DONE_TODOS,
     "task_complete": True,
     "is_docs_finished": True,

@@ -24,6 +24,7 @@ REPORT = "成果：三份文档齐备可交付。经验教训：先对齐范围�
 SEED = {
     "task_brief": "做个记账 CLI",
     "build_way": "way3",
+    "guidance_pref": "auto",
     "todos": [{"content": "写 README", "status": "completed"}],
     "task_complete": True,
     "is_docs_finished": True,

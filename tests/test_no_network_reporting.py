@@ -41,14 +41,42 @@ def test_ledger_and_audit_modules_import_no_network_libs():
 
 
 def test_whole_package_imports_no_network_libs():
-    """兜底扫描：整个主包零网络上报 import（Q39：账单不外发云端）。"""
+    """兜底扫描：整个主包**顶层**零网络上报 import（Q39：账单不外发云端）。
+
+    豁免 gui_config.py（14 票）：测试连接是**用户主动**的入网动作
+    （点按钮才发生），且 httpx 已改惰性导入（_httpx() 函数内）——
+    与账单/审计的"自动外发"红线语义不同；红线对象仍是 ledger/audit。
+    """
     offenders: list[str] = []
     for py in SRC.rglob("*.py"):
+        if py.name == "gui_config.py":
+            continue  # 用户主动测试连接（惰性导入）；非上报路径
         tree = ast.parse(py.read_text(encoding="utf-8"))
         bad = _imported_top_levels(tree) & _NETWORK_MODULES
         if bad:
             offenders.append(f"{py.name}: {sorted(bad)}")
     assert not offenders, f"主包存在网络上报 import: {offenders}"
+
+
+def test_gui_config_httpx_is_function_local_not_module_level():
+    """gui_config 的 httpx 只能出现在函数体内（惰性）；模块顶层出现即倒退。"""
+    tree = ast.parse((SRC / "gui_config.py").read_text(encoding="utf-8"))
+    # 收集全部顶层节点（模块级）里引用 httpx 的名字
+    module_level_names: set[str] = set()
+    for node in tree.body:  # 只走顶层——函数体不在 tree.body 直接层
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and sub.id == "httpx":
+                module_level_names.add(sub.id)
+            if isinstance(sub, ast.Attribute) and getattr(sub.value, "id", "") == "httpx":
+                module_level_names.add("httpx")
+    # 顶层只允许出现赋值目标 `httpx = _httpx()`（函数体内局部名）
+    offenders = [
+        node.lineno
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and any(alias.name.split(".")[0] == "httpx" for alias in getattr(node, "names", []))
+    ]
+    assert not offenders, f"gui_config 顶层 import httpx（行 {offenders}）——须走 _httpx() 惰性"
 
 
 def test_ledger_modules_declare_local_only_contract():

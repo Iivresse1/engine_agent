@@ -94,6 +94,7 @@ def test_graph_way4_first_round_lays_scaffold(tmp_path: Path):
     seed = {
         "task_brief": "记账工具",
         "build_way": "way4",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "selected_proposal": 0,
         "todos": WAY4_TODOS,
@@ -135,6 +136,7 @@ def test_graph_way4_second_round_scaffold_line_gone_and_docs_grow(tmp_path: Path
     seed = {
         "task_brief": "记账工具",
         "build_way": "way4",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "selected_proposal": 0,
         "todos": WAY4_TODOS,
@@ -163,6 +165,7 @@ def test_graph_way3_assembler_no_scaffold_line(tmp_path: Path):
     seed = {
         "task_brief": "x",
         "build_way": "way3",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": [{"content": "编写 README", "status": "pending"}],
         "actor_messages": [HumanMessage(content="开始")],

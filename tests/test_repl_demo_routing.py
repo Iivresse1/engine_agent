@@ -133,6 +133,7 @@ def test_fifth_pasted_error_breaks_with_loop_exhausted(tmp_path):
         {
             "task_brief": "做个记账 CLI",
             "build_way": "way3",
+            "guidance_pref": "auto",
             "todos": [{"content": "写 README", "status": "completed"}],
             "task_complete": True,
             "demo_phase": "building",

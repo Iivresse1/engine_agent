@@ -84,6 +84,7 @@ def test_graph_routes_empty_todos_to_planner_round():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [],
             "actor_messages": [],
         },

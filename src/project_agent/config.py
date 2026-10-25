@@ -18,8 +18,8 @@ from typing import Protocol
 
 _BOM = "\ufeff"
 
-# .env 字段序（写盘顺序即首启问卷顺序）
-_FIELDS = ("main_model", "api_key", "base_url", "sub_model")
+# .env 字段序（写盘顺序即首启字段顺序；decision_mode 尾部——14 票 GUI 开关）
+_FIELDS = ("main_model", "api_key", "base_url", "sub_model", "decision_mode")
 
 
 class IO(Protocol):
@@ -33,6 +33,7 @@ class AppConfig:
     api_key: str
     base_url: str = ""
     sub_model: str = ""
+    decision_mode: str = "ai_review"  # 14 票：GUI 开关落盘（"ai_review"|"manual"）
 
 
 def _strip_bom(text: str) -> str:
@@ -103,11 +104,16 @@ class ConfigStore:
         api_key = values.get("api_key", "")
         if not main_model or not api_key:
             return None
+        # decision_mode 受控归一：非法值/缺省 → ai_review（14 票默认）
+        decision_mode = values.get("decision_mode", "")
+        if decision_mode not in ("ai_review", "manual"):
+            decision_mode = "ai_review"
         return AppConfig(
             main_model=main_model,
             api_key=api_key,
             base_url=values.get("base_url", ""),
             sub_model=values.get("sub_model", ""),
+            decision_mode=decision_mode,
         )
 
 
@@ -122,7 +128,7 @@ def _prompt(io: IO, text: str, *, required: bool) -> str:
 
 
 def ensure_config(store: ConfigStore, io: IO) -> AppConfig:
-    """已有配置零提问直达；缺失则首启问卷一次并写盘。"""
+    """已有配置零提问直达；缺失则首启问卷一次并写盘（终端 fallback 形态）。"""
     existing = store.load()
     if existing is not None:
         return existing
@@ -132,6 +138,10 @@ def ensure_config(store: ConfigStore, io: IO) -> AppConfig:
         api_key=_prompt(io, "API key:", required=True),
         base_url=_prompt(io, "API base URL（回车跳过）:", required=False),
         sub_model=_prompt(io, "子角色模型（回车=同主模型）:", required=False),
+        decision_mode=(
+            _prompt(io, "决策模式（回车=AI 自动审核；输 manual=全部人工）:", required=False)
+            or "ai_review"
+        ),
     )
     store.save(config)
     return config

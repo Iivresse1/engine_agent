@@ -20,6 +20,7 @@ def _base_state(**overrides):
     state = {
         "task_brief": "做个记账 CLI",
         "build_way": "way3",
+        "guidance_pref": "auto",
         "todos": DONE_TODOS,
         "task_complete": True,
         "actor_messages": [HumanMessage(content="开始")],

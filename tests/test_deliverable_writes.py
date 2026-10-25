@@ -168,6 +168,7 @@ def test_graph_way3_replay_writes_deliverables(tmp_path):
     seed = {
         "task_brief": "记账工具",
         "build_way": "way3",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": [
             {"content": "编写 README", "status": "pending"},
@@ -197,6 +198,7 @@ def test_graph_way3_whitelist_rejected_write_skipped(tmp_path):
     seed = {
         "task_brief": "x",
         "build_way": "way3",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": [{"content": "编写 README", "status": "pending"}],
         "actor_messages": [HumanMessage(content="开始")],
@@ -218,6 +220,7 @@ def test_graph_way1_replay_zero_write_parsing(tmp_path):
     seed = {
         "task_brief": "x",
         "build_way": "way1",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": TWO_PENDING,
         "actor_messages": [HumanMessage(content="开始")],
@@ -239,6 +242,7 @@ def test_graph_way2_write_idea_only(tmp_path):
     seed = {
         "task_brief": "x",
         "build_way": "way2",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": [{"content": "产出一页纸方案", "status": "pending"}],
         "actor_messages": [HumanMessage(content="开始")],

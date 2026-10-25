@@ -35,11 +35,14 @@ def _assembled(todos: list) -> dict:
 
 
 def test_entry_route_row4_uncleared_todos_to_context_assembler():
-    assert entry_route({"task_brief": "x", "build_way": "way1", "todos": TWO_PENDING}) == CONTEXT_ASSEMBLER
+    assert entry_route(
+        {"task_brief": "x", "build_way": "way1", "guidance_pref": "auto", "todos": TWO_PENDING}
+    ) == CONTEXT_ASSEMBLER
     assert entry_route(
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [
                 {"content": "a", "status": "completed"},
                 {"content": "b", "status": "in_progress"},
@@ -55,6 +58,7 @@ def test_entry_route_cleared_todos_still_planner_until_verifier_slice():
             {
                 "task_brief": "x",
                 "build_way": "way1",
+                "guidance_pref": "auto",
                 "todos": [{"content": "a", "status": "completed"}],
             }
         )
@@ -164,6 +168,7 @@ def test_graph_assembler_actor_flow_with_model():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
@@ -187,6 +192,7 @@ def test_graph_model_none_actor_skeleton_inert():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
@@ -208,6 +214,7 @@ def test_graph_isolation_redline_seeded_demo_messages():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="主线")],
             "demo_messages": [HumanMessage(content=f"demo 侧 {marker}")],

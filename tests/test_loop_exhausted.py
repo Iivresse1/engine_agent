@@ -67,6 +67,7 @@ def test_five_cleared_unpassed_rounds_hit_loop_exhausted():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "off",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
@@ -111,6 +112,7 @@ def test_exhausted_recovery_next_input_replanned_with_count_reset():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "off",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],

@@ -121,6 +121,7 @@ def test_way4_full_chain_replay(tmp_path):
         {
             "task_brief": "记账工具",
             "build_way": "way4",
+            "guidance_pref": "off",
             "guidance_mode": "off",
             "todos": [],
             "actor_messages": [HumanMessage(content="开始")],
@@ -174,6 +175,7 @@ def test_way4_full_chain_keyword_selection_deepens(tmp_path):
         {
             "task_brief": "x",
             "build_way": "way4",
+            "guidance_pref": "off",
             "todos": [],
             "actor_messages": [HumanMessage(content="开始")],
         },

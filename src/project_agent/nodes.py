@@ -56,11 +56,6 @@ from project_agent.compression import (
     round_texts,
     should_compress,
 )
-from project_agent.onboarding import (
-    interpret_answer,
-    next_unset_field,
-    question_for,
-)
 from project_agent.protocol import Role, RoundEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
 from project_agent.scopes import rule_for, tools_for_scope
@@ -236,58 +231,17 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
 
 
 def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """首启两层：问卷四问 → task_brief 一次写定。
+    """简报写定（14 票瘦身：四问循环移除——指引一问归 guidance_trigger）。
 
     - task_brief 已设 → {}（一次写定 + 01 遗留会话直达）
-    - 上一轮 turn_end_reason=="question"：最新人类消息=当前题答案——解释成功
-      写字段；四问全齐 → task_brief 从**首条**人类消息（原始想法）写定+round_end；
-      不可解释 → 重问本题（幂等零副作用）
-    - 非 question 后续 → 问第一未设题（首轮用户想法绝不当答案解释）
-    - 判"未设"：value is None or value == ""（skill_packs=[] 合法已设）
+    - 其余（首条自由文本/后续输入）→ task_brief 从**首条**人类消息
+      （原始想法）写定 + round_end；无人类消息（空输入兜底）→ {}
+    - 上轮 question 的消费不在此节点（guidance_trigger 管指引问；
+      入口路由按 guidance_pref 未设先行分流）
     """
     if state.get("task_brief"):
         return {}
 
-    def _ask(field: str, dashboard: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        spec = question_for(field)
-        probe = dashboard if dashboard is not None else state
-        hint = field == "guidance_pref" and probe.get("user_mode") == "novice"
-        return _question_breakpoint(spec, hint=hint)
-
-    def _unset(dashboard: Mapping[str, Any]) -> str | None:
-        return next_unset_field(dashboard)
-
-    if state.get("turn_end_reason") == RoundEndReason.QUESTION.value:
-        current = _unset(state)
-        answer = _latest_human_text(state)
-        if current is not None and answer is not None:
-            spec = question_for(current)
-            value = interpret_answer(spec, answer)
-            if value is not None:
-                updated: dict[str, Any] = {current: value}
-                probe = dict(state)
-                probe.update(updated)
-                nxt = _unset(probe)
-                if nxt is None:
-                    # 四问全齐：task_brief 从首条人类消息（原始想法）写定
-                    brief = _first_human_text(state)
-                    if brief:
-                        return {
-                            **updated,
-                            "task_brief": brief,
-                            **_round_end(f"任务简报已记录：{brief}", state),
-                        }
-                return {**updated, **_ask(nxt, probe)} if nxt is not None else updated
-        # 不可解释或无答案：重问当前题（幂等零副作用）
-        target = current if current is not None else _unset(state)
-        if target is not None:
-            return _ask(target)
-
-    # 非 question 后续 / 首轮：问第一未设题
-    field = _unset(state)
-    if field is not None:
-        return _ask(field)
-    # 问卷已齐但简报未写（异常兜底）：从首条人类消息写定
     brief = _first_human_text(state)
     if brief:
         return {"task_brief": brief, **_round_end(f"任务简报已记录：{brief}", state)}
@@ -524,13 +478,50 @@ _LABEL_BY_WAY: dict[str, str] = {way: label for label, way in _WAY_BY_LABEL.item
 
 
 def guidance_trigger_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """纯配置映射写 guidance_mode 三态（spec 节点表：只写 guidance_mode，不写 turn_end）。"""
-    from project_agent.onboarding import guidance_mode_mapping
+    """指引一问的发射与消费 + 三态映射（14 票重编排：问卷四问仅存此题）。
 
+    - guidance_pref 已设 → 纯映射写 guidance_mode（02 票既有路径，零改动）
+    - 未设 且 task_brief/build_way 已设 → 发 question 断点（指引一问）
+    - 上轮 question 且未设 → 取最新人类消息解释：
+      可解释 → 写 guidance_pref + user_mode 推导（auto/ask→novice、
+      off→experienced）+ guidance_mode 映射 + round_end 收轮；
+      不可解释 → 重发同一 question（幂等零副作用）
+    """
+    from project_agent.onboarding import (
+        guidance_mode_mapping,
+        interpret_answer,
+        question_for,
+    )
+
+    guidance_pref = state.get("guidance_pref")
+    if guidance_pref is not None and guidance_pref != "":
+        # 已设（含 off——falsy 陷阱：判"已设"不得用 truthy）
+        mode = guidance_mode_mapping(
+            state.get("build_way"), guidance_pref, state.get("user_mode")
+        )
+        return {"guidance_mode": mode}
+
+    spec = question_for("guidance_pref")
+    if state.get("turn_end_reason") == RoundEndReason.QUESTION.value:
+        answer = _latest_human_text(state)
+        value = interpret_answer(spec, answer) if answer is not None else None
+        if value is not None:
+            # user_mode 推导（Q65 裁定）：要讲解=新手语境，不要=熟手语境
+            user_mode = "experienced" if value == "off" else "novice"
+            mode = guidance_mode_mapping(state.get("build_way"), value, user_mode)
+            return {
+                "guidance_pref": value,
+                "user_mode": user_mode,
+                "guidance_mode": mode,
+                **_round_end("指引偏好已记录", state),
+            }
+        return _question_breakpoint(spec)
+
+    if state.get("task_brief") and state.get("build_way"):
+        return _question_breakpoint(spec)
+    # 相位未达（简报/方式未齐）：只写映射兜底，不发问
     mode = guidance_mode_mapping(
-        state.get("build_way"),
-        state.get("guidance_pref"),
-        state.get("user_mode"),
+        state.get("build_way"), guidance_pref, state.get("user_mode")
     )
     return {"guidance_mode": mode}
 

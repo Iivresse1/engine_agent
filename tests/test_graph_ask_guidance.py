@@ -29,6 +29,7 @@ def _seed_state() -> dict:
     return {
         "task_brief": "记账 CLI",
         "build_way": "way1",
+        "guidance_pref": "off",
         "todos": list(TWO_PENDING),
         "actor_messages": [HumanMessage(content=ACTOR_MARKER)],
         "round_count": 2,
@@ -119,7 +120,14 @@ def test_graph_guidance_gate_injects_once_then_aligned(tmp_path):
     seed = _seed_state()
     # 入轮时已对齐（assembler 门差=0）；actor 本轮写 1 条 NOTE → notes_version 3，
     # 指引门差 3-2>0 → 注入并对齐到 3。次轮差=0 → 零重复注入。
-    seed.update({"guidance_mode": "auto", "notes_version": 2, "guidance_read_version": 2})
+    seed.update(
+        {
+            "guidance_pref": "auto",
+            "guidance_mode": "auto",
+            "notes_version": 2,
+            "guidance_read_version": 2,
+        }
+    )
 
     r1 = app.invoke(seed, _cfg("g-guide-1"))
     assert r1["turn_end_payload"]["round_output"].endswith(GUIDANCE_TEXT)

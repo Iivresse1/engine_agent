@@ -9,6 +9,9 @@ PROPOSALS（三方案并行先于计划）。
 11 票：行 7 由 END 改道 DOCS_DONE（demo 决议断点）；行 7 前插 demo 行——
 task_complete 真且 demo_phase=="building" → DEMO_AGENT（报错回传环入口；
 demo 环计数>=5 由行 6 先行压过）。
+14 票：行 2 后新行——简报+方式已定且 guidance_pref 未设 → GUIDANCE_TRIGGER
+（指引一问，build_ways 决议后）；问卷 user_mode 两行删除（user_mode 改由
+指引答案推导，不再有"部分填写回问卷"路径）。
 行序即优先级；guidance_trigger 相位由 build_ways 条件边接入（非 START 路由）。
 """
 
@@ -35,6 +38,7 @@ LOOP_EXHAUSTED = "loop_exhausted"
 END_MAP: dict[str, str] = {
     ASK_TASKS: ASK_TASKS,
     BUILD_WAYS: BUILD_WAYS,
+    GUIDANCE_TRIGGER: GUIDANCE_TRIGGER,  # 14 票：指引一问相位
     PROPOSALS: PROPOSALS,
     PLANNER: PLANNER,
     CONTEXT_ASSEMBLER: CONTEXT_ASSEMBLER,
@@ -47,25 +51,25 @@ END_MAP: dict[str, str] = {
 ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
     ({}, ASK_TASKS),
     ({"task_brief": ""}, ASK_TASKS),
-    ({"build_way": "way4"}, ASK_TASKS),
-    ({"user_mode": "novice"}, ASK_TASKS),  # 02：问卷部分填写+简报未设
-    (
-        {"user_mode": "novice", "guidance_pref": "auto", "skill_packs": []},
-        ASK_TASKS,  # skill_packs=[] 合法已设——问卷仍走 ask_tasks（简报未设）
-    ),
     ({"task_brief": "一个想法"}, BUILD_WAYS),
     ({"task_brief": "x", "build_way": ""}, BUILD_WAYS),
     ({"task_brief": "x", "user_mode": None}, BUILD_WAYS),  # 02：01 遗留会话
+    # 14 票新行（行 2 后）：简报+方式已定且指引未答 → GUIDANCE_TRIGGER（指引一问）
+    ({"task_brief": "x", "build_way": "way2"}, GUIDANCE_TRIGGER),
     # 07 新行（行 3 前）：way4 且 selected_proposal 未设且 todos 未设 →
-    # PROPOSALS（三方案并行先于计划）
-    ({"task_brief": "x", "build_way": "way4"}, PROPOSALS),
+    # PROPOSALS（三方案并行先于计划；14 票起需 guidance_pref 已设才可达）
+    ({"task_brief": "x", "build_way": "way4", "guidance_pref": "auto"}, PROPOSALS),
     # 05 行 3：todos 空（falsy）→ planner（新计划）
-    ({"task_brief": "x", "build_way": "way4", "selected_proposal": 0}, PLANNER),
+    (
+        {"task_brief": "x", "build_way": "way4", "guidance_pref": "auto", "selected_proposal": 0},
+        PLANNER,
+    ),
     # 05 行 4：todos 未清 → context_assembler（主环工作轮）
     (
         {
             "task_brief": "x",
             "build_way": "way4",
+            "guidance_pref": "auto",
             "selected_proposal": 0,
             "todos": [{"content": "t", "status": "pending"}],
             "main_loop_count": 2,
@@ -78,6 +82,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "t", "status": "pending"}],
             "main_loop_count": 5,
         },
@@ -88,6 +93,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": False,
         },
@@ -98,6 +104,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": False,
             "main_loop_count": 5,
@@ -109,6 +116,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "main_loop_count": 5,
@@ -119,6 +127,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "demo_loop_count": 5,
@@ -130,6 +139,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
         },
@@ -140,6 +150,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "demo_phase": "building",
@@ -151,6 +162,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "demo_phase": "building",
@@ -163,6 +175,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "demo_phase": "skipped",
@@ -175,6 +188,7 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": [{"content": "a", "status": "completed"}],
             "task_complete": True,
             "is_docs_finished": True,
@@ -200,6 +214,11 @@ def entry_route(dashboard: Mapping[str, Any]) -> str:
         return ASK_TASKS
     if not dashboard.get("build_way"):
         return BUILD_WAYS
+    # 14 票新行：指引未答（None/"" 才算未设——off 是合法已设值，falsy 陷阱）
+    # （question 续跑也走 guidance_trigger 消费答案——节点按 reason 分流）
+    pref = dashboard.get("guidance_pref")
+    if pref is None or pref == "":
+        return GUIDANCE_TRIGGER
     # 07 新行（行 3 前）：way4 方案先于计划——selected_proposal 未设且
     # todos 未设 → PROPOSALS（三方案并行节点）
     if (

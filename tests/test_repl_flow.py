@@ -13,7 +13,7 @@ pytestmark = pytest.mark.replay
 
 
 def _onboarding_answers() -> list[str]:
-    return ["deepseek-chat", "sk-test", "", ""]
+    return ["deepseek-chat", "sk-test", "", "", ""]
 
 
 def test_first_run_onboarding_then_zero_questions_on_restart(workspace):
@@ -23,13 +23,14 @@ def test_first_run_onboarding_then_zero_questions_on_restart(workspace):
     assert cfg.api_key == "sk-test"
     assert workspace.config_path.exists()
 
-    # v1.5：.env 格式落盘（KEY=VALUE 平面）
+    # v1.5：.env 格式落盘（KEY=VALUE 平面）；14 票新增 decision_mode 键
     values = parse_env(workspace.config_path.read_text(encoding="utf-8"))
     assert values == {
         "main_model": "deepseek-chat",
         "api_key": "sk-test",
         "base_url": "",
         "sub_model": "",
+        "decision_mode": "ai_review",
     }
 
     # 重启：已有配置，零提问直达
@@ -43,16 +44,13 @@ def test_repl_session_rounds_slash_and_status(workspace):
     io = ScriptedIO(
         _onboarding_answers()
         + [
-            "我想做一个记账 CLI",
-            "/status",
-            "我不了解编程",
-            "自动每轮",
-            "AI 自动审核",
-            "默认技能包",
+            "我想做一个记账 CLI",  # 首条自由文本 → 简报写定（14 票）
             "/status",
             "嗯",  # 首入 build_ways：发 choice 断点
             "/status",
-            "用完整文档",  # 决议通道输入 → build_way 写定
+            "用完整文档",  # 决议通道输入 → build_way 写定 → 指引一问
+            "/status",
+            "需要",  # 指引答案 → guidance_pref/user_mode/guidance_mode 落盘
             "/status",
             "/nope",
             "/exit",
@@ -67,14 +65,18 @@ def test_repl_session_rounds_slash_and_status(workspace):
     out = "\n".join(io.outputs)
     # 非斜杠输入进主图，断点渲染
     assert "断点 · round" in out
-    # 四问渲染（13 票：question 断点专属渲染——主体/解释/编号选项）
+    # 14 票重编排：开场提示语 + 简报 round + 指引一问 question 断点
+    assert "今天要做什么呢？" in out
+    assert "任务简报已记录：我想做一个记账 CLI" in out
     assert "断点 · question" in out
-    assert "你的编程基础" in out
-    assert "这会影响讲解的详略和术语的密度" in out
-    assert "编程新手" in out  # Q1 选项主体
+    assert "需要每轮给出指引帮助更好的理解项目吗" in out
+    assert "边构建边学" in out
+    assert "我自己看得懂" in out  # 指引选项主体
     # /status 展示仪表盘
     assert "task_brief: 我想做一个记账 CLI" in out
+    # 指引答案推导 user_mode（auto → novice，14 票）
     assert "user_mode: novice" in out
+    assert "guidance_pref: auto" in out
     # choice 断点渲染：4 选项 + 推荐 + 一句话理由
     assert "断点 · choice:build_way" in out
     assert "轻 grill" in out
