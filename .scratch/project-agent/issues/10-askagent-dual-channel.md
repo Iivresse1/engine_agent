@@ -4,11 +4,15 @@
 
 **Blocked by:** 06, 08, 09
 
-**Status:** ready-for-agent
+**Status:** done（2026-10-25 实现，合并 baa66ea）
 
-- [ ] 旁路：独立 thread 历史自累积、读项目文档切片作答（非主线历史）、追问上下文保持
-- [ ] 工作流外 /ask-for-help 不可用
-- [ ] 图内指引：仅版本差>0 注入、材料包单发无历史累积、指引文本不进任何主线私有 key
-- [ ] guidance_read_version 读毕对齐（对齐后同材料不再重复注入）
-- [ ] AskAgent 工具面 = 矩阵只读集（结构性断言无写权工具）
-- [ ] 指引含为什么 + 下一步 + 文档链接；链接经抓取验证有效（假 fetch 预置死链被拒）
+- [x] 旁路：独立 thread 历史自累积、读项目文档切片作答（非主线历史）、追问上下文保持
+- [x] 工作流外 /ask-for-help 不可用
+- [x] 图内指引：仅版本差>0 注入、材料包单发无历史累积、指引文本不进任何主线私有 key
+- [x] guidance_read_version 读毕对齐（对齐后同材料不再重复注入）
+- [x] AskAgent 工具面 = 矩阵只读集（结构性断言无写权工具）
+- [x] 指引含为什么 + 下一步 + 文档链接；链接经抓取验证有效（假 fetch 预置死链被拒）
+
+## Comments
+
+**2026-10-25 实现 完成（implementer 子代理 5 提交 + Lead 融合入 11 票分支，合并 baa66ea，733 绿含 11 票）**：ask_agent.py（ASK_TOOLSET 10 件只读集/build_ask_context 磁盘切片/ask_answer 独立历史/AskBypass/guidance_material_pack/build_guidance 单发/verify_link）；REPL /ask-for-help（工作流守卫三态/图外作答零 state 写）；actor 后置指引工序（版本门+材料包+round_output 尾部注入+读毕对齐）。**已知语义注记（实现者异议）**：09 的 assembler 与 10 的指引共用 guidance_read_version 门——入轮前已有版本差会被 assembler 先消费对齐，图级指引只在 actor 本轮自增 NOTE 时注入；按终裁字面实现未改 09，若需"入轮即有差必须由指引通道注入"需另行裁定门归属。verify_link 为纯边界函数（真实 WebFetch 接线留 CLI/接线票）。

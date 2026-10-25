@@ -197,6 +197,7 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 09 票完成（合并 7890bd1，594 绿，+29）：scopes/skills 新模块；assembler 工厂化五段 system+版本门；actor system 尾行工具清单送达。**关键终裁**：工具子集送达弃用 langchain middleware（版本敏感），走 assembler 装入+actor 尾行——语义等价零版本风险。与 07 的 nodes.py 三处冲突由 Lead 手工解（工厂骨架+脚手架织入/助手全留/尾部组合）。
 - 08 票完成（合并 57c8487，660 绿）：compression.py 四边界/头部单包/猜想提取；重排=add_messages 指令批（首条覆写+RemoveMessage——**消息历史收缩的 LangGraph 正确方式**，02 票 decisions 里"resolver 默认行为直接支持"的判断在删除场景被证伪，指令批才是收缩正道）；with_compression 三挂点；/compact 待并批（压缩批必须随下轮 invoke 进图否则 checkpointer 历史永不收缩）；spec 升 v1.4（+compacted_rounds）。**执行注记**：子代理死于切片 4/5 之交（第四次耗尽），Lead 接手收尾——教训：长票切片 4+ 是子代理上下文高危区，后续票派工切片数压到 ≤5 且最后一片只做合并。**07/08/09 三路并行全部收齐——前沿解锁：10/11 两票并行**。
 - 10/11 首派三代理集体 failed（2026-10-25 08:00 前后，含 08 已死的旧代理迟到通知）——环境级中断，两 worktree 零残留零提交。12:10 重启（goal resume）：确认 worktree 干净/venv 重建，两票终裁版派工单原样重发。教训补充：批量并行代理对宿主稳定性敏感——中断后先查 worktree 残留再决定重派，避免重复劳动。
+- 10/11 二派双双交付但均死于汇报前（10 票全 5 切片+合并完成仅未发汇报——Lead 查 worktree 发现 682 绿直接采用；11 票 4 切片完成死于切片 3 提交后——Lead 提交遗留测试+融合 10 的 /ask-for-help 与指引块入 11 分支）。合并 baa66ea（733 绿）。**10 票语义注记**：assembler（09）与指引（10）共用 guidance_read_version 门——assembler 先消费，图级指引只在 actor 同轮自增 NOTE 时触发；未裁定门归属前按字面实现。**11 票接口扩展**：with_compression +messages_key（demo 挂点 demo_messages）；Role.+DEMO_AGENT；SharedDocs.+write_any；routing 行 7→DOCS_DONE（12 票接管终态）。**前沿解锁：12 终检管线（最后一张实现票）**。
 
 ## 挂起 / 待办
 
