@@ -73,8 +73,8 @@ Status: ready-for-agent
 25. As a 用户, I want planner 先列出 todo 清单, so that 构建有可见的计划而非黑箱
 26. As a 用户, I want todo 清单三态显示（未开始/进行中/完成）, so that 我随时知道进度和当前焦点
 27. As a 用户, I want 每轮生成物带【R#】轮次标记, so that 我知道什么是什么时候产生的
-28. As a 用户, I want 主角色按项目阶段推荐技能（指令+20字内理由）, so that 我知道下一步可以调什么
-29. As a 用户, I want 技能推荐不打断我（AI 审核档）或每条都暂停等我确认（人工裁决档）, so that 打扰程度由我定
+28. As a 用户, I want 主角色按项目阶段推荐技能（指令+20字内理由）, so that 我知道下一步可以调什么（**当前未接线，见欠账**：SkillRecommend 工具本体未实现）
+29. As a 用户, I want 技能推荐不打断我（AI 审核档）或每条都暂停等我确认（人工裁决档）, so that 打扰程度由我定（**当前未接线，见欠账**：decision_mode 图内零消费）
 30. As a 用户, I want 复杂文档由框架先行、grilling 指引逐步填写, so that 文档不是一次性倒出来而是长出来的
 
 ### 学习与提问（旁路）
@@ -83,7 +83,7 @@ Status: ready-for-agent
 32. As a 用户, I want 旁路问答读的是项目文档切片而非主对话历史, so that 问"为什么选X"能得到项目语境的答案
 33. As a 用户, I want 旁路问答自己的历史独立累积, so that 追问不丢、上下文不串
 34. As a 新手用户, I want 每轮构建指引附"为什么这么做+下一步+技术栈文档链接", so that 我在构建中同步学习
-35. As a 新手用户, I want 指引出现在主产出之外的独立区域（侧栏/折叠面板）, so that 学习不遮挡构建本身
+35. As a 新手用户, I want 指引出现在主产出之外的独立段落（不混进构建正文）, so that 学习不遮挡构建本身
 36. As a 想深入的用户, I want 文档链接经过抓取验证有效, so that 我不被死链浪费
 
 ### 讲解与教学（13 票）
@@ -159,7 +159,7 @@ Status: ready-for-agent
 - **主工作流图为单一大图**（StateGraph + checkpointer）；AskAgent 为图外旁路 + 图内指引双通道（+ teach-me 深度形态）。
 - **断点架构**：主图内零 interrupt()；每轮轮终即断点（state 落盘、控制权交还），用户自由 prompt 融合同 thread 续跑。等价于"正常 agent harness 的对话节律 + gate 变量确定性骨架"（ADR-0001）。
 - **角色五件**：Builder（way2-4）/ way1 Actor（ReAct）/ DemoAgent / AskAgent（旁路 + 指引 + teach-me）/ verifier。GeneralAgent 已被 way1 吸收。
-- **Actor 工厂**：4 构建方式 × 3 指引态（auto/ask/off；way1 恒 off）= 参数化一个工厂，图上不画平行路径。
+- **Actor 工厂**：4 构建方式 × 2（`guidance_enabled`：mode∈{auto,ask}）= 参数化一个工厂，图上不画平行路径。**指引三态差异不在工厂参数上**：auto/ask/off 的分流由 actor 后置工序按 `guidance_mode` 处理（auto 直接附讲解、ask 发四选断点、off 不附）。
 
 ### 运行时与配置（v1.8 真模型接线）
 
@@ -175,9 +175,7 @@ Status: ready-for-agent
 - **测试连接**：httpx POST `{base}/chat/completions`（`max_tokens: 1`，10s 超时），2xx 即通；**不阻塞保存**（key 好坏由用户自决）。httpx **惰性导入**（见"工程护栏"红线）。
 - **密钥防推送**：`.gitignore` 覆盖 `.env`/`.env.*`/`*.env`/`config.json`/`ledger.json`/`state.db`/`state.db.session.json`/`.project-agent/`；冒烟产物 `BUILD_LOG.md`、`NOTES.md` 同样忽略（自托管冒烟曾误提交一例，已清除）。
 
-### 图拓扑（相位图 —— 每轮 = 一个相位簇 + END）
-
-一轮 = 一次 invoke（START→END）；**不存在"一轮跑完整个流程"**。START 挂**一条纯代码条件边**（`route_from_start → END_MAP`，一次路由覆盖全部相位入口），入口路由器择相位；相位节点算完写断点即回 END；跨轮由仪表盘重建位置。多数相位是单节点一簇，唯一的多节点簇是主环（assembler→actor→verifier→必要时 planner）。
+### 图拓扑（相位图 —— 每轮 = 一个相位簇 + END）一轮 = 一次 invoke（START→END）；**不存在"一轮跑完整个流程"**。START 挂**一条纯代码条件边**（`route_from_start → END_MAP`，一次路由覆盖全部相位入口），入口路由器择相位；相位节点算完写断点即回 END；跨轮由仪表盘重建位置。多数相位是单节点一簇，唯一的多节点簇是主环（assembler→actor→verifier→必要时 planner）。
 
 | 相位节点 | 出口 |
 |---|---|
@@ -187,10 +185,10 @@ Status: ready-for-agent
 | proposals（way4 三方案） | END（`choice:proposal`） |
 | planner | END（todos 建立） |
 | context_assembler → actor | actor → verifier（有模型）/ END（无模型骨架） |
-| verifier | 条件边（计数最前）：计数=5 → loop_exhausted；todos 未清 → END（`round` 收轮）；todos 清但 task_complete 假 → planner（同轮重新规划）；双门通过 → END（双门成立后由**下一轮入口路由**接 docs_done，非本轮回边） |
+| verifier | 条件边（计数最前）：计数≥5 → loop_exhausted；todos 未清 → END（`round` 收轮）；todos 清但 task_complete 假 → planner（同轮重新规划）；双门通过 → END（双门成立后由**下一轮入口路由**接 docs_done，非本轮回边） |
 | docs_done | 条件边：building → demo_agent；skipped/done → finalizer；未决 → END |
-| demo_agent | 条件边：计数=5 → loop_exhausted；否则 → finalizer |
-| finalizer → check_proper_output | 条件边：干净 → END（`finished`）；不干净且环<5 → planner；=5 → loop_exhausted |
+| demo_agent | 条件边：计数≥5 → loop_exhausted；否则 → finalizer |
+| finalizer → check_proper_output | 条件边：干净 → END（`finished`）；不干净且环<5 → planner；≥5 → loop_exhausted |
 | loop_exhausted | END（`loop_exhausted` 断点，交人工） |
 
 - actor 节点内含 loop；way1 用 ReAct 循环，way2-4 用 grilling 循环。
@@ -200,7 +198,7 @@ Status: ready-for-agent
 
 ### 状态契约（v1.1 增补：图状态设计）
 
-**轮的机械化表述**（Q46 落地）：一轮 = 一次完整图执行（START→END）；断点 = END 时 `turn_end_reason` 落盘、checkpointer 持久化、控制权归 REPL。下一轮 invoke(同 thread) 由**入口路由器**（START 后第一组纯代码条件边）读仪表盘决定从哪个相位切入。仪表盘 = 相位状态机——"当前位置"不需要 mid-graph 挂起，全部由受控字段重建；这是"正常 agent 对话节律 + gate 确定性骨架"的合并形态。
+**轮的机械化表述**（Q46 + Q61 相位制）：一轮 = 一次 invoke（START→END），跑的是**一个相位簇**而非整个流程——"从哪切入"由入口路由器按仪表盘重建，不需要 mid-graph 挂起。断点 = END 时 `turn_end_reason` 落盘、checkpointer 持久化、控制权归 REPL。下一轮 invoke(同 thread) 由**入口路由器**（START 后第一组纯代码条件边）读仪表盘决定相位。仪表盘 = 相位状态机——"当前位置"全部由受控字段重建；这是"正常 agent 对话节律 + gate 确定性骨架"的合并形态。
 
 **仪表盘字段表**（全局 state 只收以下受控字段，任何消息转储不得入内）：
 
@@ -220,7 +218,7 @@ Status: ready-for-agent
 | task_complete / is_docs_finished | bool | verifier | gate 变量 |
 | output_clean | bool | check_proper_output | gate 变量 |
 | 主环 / demo 环 / 终检环计数器 | int | 环回退自增；planner 开新循环清零 | 各环独立 Max_loop=5，互不污染 |
-| demo_phase | undecided/building/skipped | docs_done 决议轮 | demo 阶段路由 |
+| demo_phase | 未设/building/skipped/done | docs_done 决议轮 | demo 阶段路由（未设=未决；`done` 表示 demo 已完成进入终检） |
 | round_summary | str | actor 后置工序 | 最新轮摘要，指引注入材料 |
 | notes_version | int 单调递增 | NotepadAdd 成功后自增 | Notepad 新鲜度 |
 | round_count | int 单调递增 | actor 每产出一轮 +1 | 【R#】轮次编号源（也是 teach-me 页号） |
@@ -241,7 +239,7 @@ Status: ready-for-agent
 | demo_messages | DemoAgent | 追加；报错回传融合于此 |
 | assembled_context | Actor | 每轮整覆写——两段式的"装"半段 |
 | resolution_inputs | 决议节点 | 无 reducer 整覆写：融合端按 reason 追加 `[*existing, text]`，决议节点消费后返回 `[]` 清空 |
-| 旁路 AskAgent 独立 thread（`{thread_id}-ask`） | 图外，REPL 分发 | 追加，checkpointer 同机制，断点协议同构 |
+| 旁路 AskAgent 独立 thread（`{thread_id}-ask`） | 图外，REPL 分发 | 追加；**历史暂未落盘**（独立 thread 已建，无独立 checkpointer 记录，重启即失——见"已知欠账"），断点协议同构 |
 | teach-me 调用 | 图内 actor 后置 / 起手，`role=ask_agent` | **无历史累积**：单发调用，历史不入任何 key |
 | TodoWrite 私有三态面板 | 各角色 | 角色内部，不落盘不共享不经工具 |
 
@@ -259,7 +257,7 @@ Status: ready-for-agent
 | 三方案并行 | 主线 grilling 历史 | proposal_set、choice 断点；选定轮写 selected_proposal |
 | planner | task_brief、build_way/selected_proposal、交付物集定义 | todos（全 pending）、主环计数清零 |
 | context_assembler | current_scope、rules 文件、todos 板、NOTES 切片（按 notes_version）、技能头、权限矩阵 | assembled_context、current_scope 落定；压缩检查（80% 阈值）可能产【R#-compact】 |
-| actor | assembled_context（中间件送达）、私有历史、todos | 私有历史追加、todos 勾选、交付物落盘（带【R#】）、notes_version++、round_summary、turn_end_reason、current_scope 声明；**13 票**：起手消费上一轮指引四选（teach/teach_always/skip/brief）、后置 ask 档发指引 question 断点或直接 teach-me |
+| actor | assembled_context（assembler 装入、actor 读）、私有历史、todos | 私有历史追加、todos 勾选、交付物落盘（带【R#】）、notes_version++、round_summary、turn_end_reason、current_scope 声明、`user_mode` 嵌入 system（`用户编程基础：{user_mode}`）；**13 票**：起手消费上一轮指引四选（teach/teach_always/skip/brief）、后置 ask 档发指引 question 断点或直接 teach-me |
 | verifier | 磁盘交付物、todos | task_complete、is_docs_finished（LLM 判内容） |
 | docs_done | task_complete、is_docs_finished | 决议断点 payload；决议轮写 demo_phase |
 | demo_actor | demo_messages（含融合的报错回传）、demo 文件 | demo_messages、demo 文件修复、demo 环计数 |
@@ -291,7 +289,7 @@ Status: ready-for-agent
 | choice:build_way | build_ways | **解释** + 4 选项 + 推荐 + 一句话理由（≤20 字代码硬约束） | 决议节点写 build_way |
 | choice:proposal | 三方案并行 | 3 方案摘要 | 决议节点写 selected_proposal |
 | docs_done | task_complete=true 且 demo_phase 未设（入口路由接） | 交付概览 + demo?/自定义 | 决议节点写 demo_phase |
-| loop_exhausted | 任一环计数=5 | 现场与求助说明 | 自由融合（人工接管） |
+| loop_exhausted | 任一环计数≥5 | 现场与求助说明 | 自由融合（人工接管） |
 | finished | check_proper_output 通过 | 双份交付路径 | 终态；旁路问答通道仍可用 |
 
 **统一输入协议**：所有断点输入都是自由文本。选择类断点同样吃自由文本（含序号），由对应决议节点解释——不存在结构化 resume 值。由此 **AskUserQuestion 实现为提问断点**（选项只作渲染辅助），不走工具内 interrupt——图内零 interrupt 的唯一例外维持为 shell 审批的 REPL 同步回调（不落 turn_end_reason、不进图）。代价：产生提问断点的节点必须可重入（提前返回后下轮重进不重复副作用）。
@@ -306,16 +304,16 @@ Status: ready-for-agent
 - 共享文档区 = 磁盘项目文档（带【R#】）+ NOTES.md；磁盘为事实来源（ADR-0004），Store 只承担 final_report 长期记忆（跨线程 KV）。
 - 【R#】切片：ReadProjectDocs 按轮次前缀检索；NotepadRead 同套机制；每轮生成物全文落 BUILD_LOG.md。
 - 版本号排序：notes_version（NotepadAdd 后自增）/ guidance_read_version（AskAgent 消费后对齐）；图内 guidance 通道入口检查版本差才注入；REPL 旁路直读磁盘天然最新。
-- **旁路物理隔离**：AskBypass 用独立 thread（`{thread_id}-ask` + 独立 checkpointer 记录），与主线状态不共享。
+- **旁路物理隔离**：AskBypass 用独立 thread（`{thread_id}-ask`），与主线状态不共享。**历史暂未落盘**（无独立 checkpointer 记录，重启即失——见"已知欠账"）。
 
 ### 上下文工程层
 
-- **Assembler 两段式**：节点写 state（base prompt + 作用域规则 + todo 板 + notepad 切片 + 工具子集声明）→ actor 中间件送达（`@dynamic_prompt` 组 system / `wrap_model_call` override tools / before_agent 版本号检查）。理由：create_agent 构造期固定后唯一官方每轮变化通道。
+- **Assembler 两段式**：节点写 state（base prompt + 作用域规则 + todo 板 + notepad 切片 + 工具子集声明）→ actor 读取 assembled_context 后写入 system。**不用 langchain middleware**（`@dynamic_prompt` / `wrap_model_call` 在 1.x 版本敏感，09 票终裁弃用）；工具清单由 actor system 尾行送达，版本号检查由 assembler 落定 `guidance_read_version`。
 - **摘要提炼（Q53=b）**：actor 节点内置后置工序——节点函数末尾、写 gate 前显式调用提炼函数，产出 round_summary + notes_version 自增。纯函数可单测。
-- **压缩（Q54）**：模型调用前统一检查——所有 LLM 调用点（assembler / actor before_model / verifier / planner / demo_agent）挂同一压缩检查；80% 阈值触发，压最老 5 轮/包（便宜模型）为【R#-compact】摘要；压后目标 ≤60%，不足再压一包（同轮最多两包）；最近 3 轮原文永不压缩；错误猜想写 Notepad；手动 `/compact` 兜底（压缩批须随下轮 invoke 进图，否则 checkpointer 历史永不收缩——`add_messages` 指令批是收缩正道）。
+- **压缩（Q54）**：模型调用前统一检查——**四个 LLM 挂点**（assembler / actor / verifier / demo_agent）挂同一压缩检查；`planner` 为纯代码零 LLM 调用，**不挂**（物理上无模型调用可压）；80% 阈值触发，压最老 5 轮/包（便宜模型）为【R#-compact】摘要；压后目标 ≤60%，不足再压一包（同轮最多两包）；最近 3 轮原文永不压缩；错误猜想写 Notepad；手动 `/compact` 兜底（压缩批须随下轮 invoke 进图，否则 checkpointer 历史永不收缩——`add_messages` 指令批是收缩正道）。
 - **注入位置（Q56）**：头部单包——全部压缩摘要合并为消息历史头部一个记忆区，每包首行标注覆盖轮次。
 - **作用域**：规则文件（rules/src.md、rules/docs.md…）+ current_scope state 字段；工具子集 = 规则声明集 ∩ 静态矩阵；Todo 自动勾选沿用电三态。
-- **技能懒加载**：上下文只注名字 + 一句话描述；SKILL.md 触发时才全文读入；推荐理由 ≤20 字代码硬约束。
+- **技能懒加载（两级：包 vs 技能）**：技能包（pack）= 一组技能的集合，`skill_packs` 是**包**清单（启动时选择加载哪些包，Q9）；上下文只注**技能**名字 + 一句话描述；SKILL.md 触发时才全文读入；推荐理由 ≤20 字代码硬约束。**内置完整 Matt Pocock 技能包**（Q10）为主 agent 按阶段推荐；现状只有 4 条 SkillHead（grilling/tdd/to-spec/teach-me）且 `skill_body` 为模拟全文桩——见"已知欠账"。
 - **final_report**：finalizer 产出 → Store 跨线程长期记忆 → 新会话 ask_tasks 时可检索注入（尚未接线，见"已知欠账"）。
 
 ### 指引与教学通道（13 票 + 14 票）
@@ -341,7 +339,7 @@ Status: ready-for-agent
 
 ### 工具权限
 
-- **矩阵（代码层强制，构造期预注册）**：Builder/DemoAgent/way1 Actor = 全工具；AskAgent = 只读（FileRead/Glob/Grep/ReadProjectDocs/NotepadRead）+ 联网（WebSearch/WebFetch）+ 提问（AskUserQuestion）+ SkillRecommend + NotepadAdd；交付物 TODO.md 写权 Builder 独占。
+- **矩阵（代码层强制，构造期预注册）**：Builder/DemoAgent/way1 Actor = 全工具（含 `DocScaffold`——框架先行的脚手架工具）；AskAgent = 只读（FileRead/Glob/Grep/ReadProjectDocs/NotepadRead）+ 联网（WebSearch/WebFetch）+ 提问（AskUserQuestion）+ SkillRecommend + NotepadAdd；交付物 TODO.md 写权 Builder 独占。（`SkillRecommend` 与 `AskUserQuestion` 目前仅有工具声明，**本体未实现**，见"已知欠账"）
 - **shell 权限**：静态正则检查器（8 类形态学：灾难删除/下载即执行/提权/凭证面/git 不可逆/网络出口/重定向/命令替换——独立于白名单、deny 全档生效、allow 命中也拦）+ 两旋钮（boundary: readonly/project-write/full 仅 flag × interrupt: AI 审核/全权人工/yolo 仅 flag；决策模式 = interrupt 初值）+ 复合命令拆段 + wrapper 剥离 + 解析失败=ask（fail-closed）。Windows：`rm` 与 `Remove-Item` 别名都拦。
 - **DemoAgent 不运行 demo（ADR-0003）**：工具面 = 全工具，shell 仍过静态正则+两旋钮；唯运行类命令在权限层拒绝，运行权在用户；报错回传融合进 demo_messages，↺环受 demo 环计数约束。
 - **排除工具**：AgentTool / SkillTool / Plan Mode 两件 / Task* 六件 / SendMessage / NotebookEdit / MCP / LSP（v2+）。
@@ -354,7 +352,7 @@ Status: ready-for-agent
 - **许可红线**：无 License 仓只学模式不抄代码（详见"总体架构"）；引入的前端依赖必须是 MIT/Apache 等宽松许可。
 - **tkinter 的边界**：仅用于首启配置窗口（"Windows 观感"就这一处）；CLI 本体不走 tkinter。
 - **命令与分发**：`[project.scripts]` 只留 `engine`（旧名 `project-agent` 废弃，无外部用户）；`pipx install` 分发；`argparse(prog="engine")`。
-- **仓库与许可**：远端 `https://github.com/Iivresse1/engine_agent.git`；项目自身以 **Apache-2.0** 发布（远端已有 LICENSE）。集成分支 `integration/project-agent`，收口后并入 `main`。
+- **仓库与许可**：远端 `https://github.com/Iivresse1/engine_agent.git`；项目自身以 **Apache-2.0** 发布（仓库根 `LICENSE` 已入集成分支——此前集成分支曾缺失，本轮从 `main` 恢复）。集成分支 `integration/project-agent`，收口后并入 `main`。
 - **兼容降级**：无显示环境 / 无 tkinter / 用户取消 → 一律退终端问卷；前端未接线时后端仍可裸终端运行（现状即此形态）。
 
 ### 协议消息层（UX-2 契约，v2.1）
@@ -387,6 +385,8 @@ Status: ready-for-agent
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）。
 - **斜杠命令**：`/help /status /compact /ask-for-help /skills /mode /exit`（前缀匹配，按长度降序取最长命中）。
+- **`/ask-for-help` 前置条件**：仅项目工作流内可用（`build_way` 已设）；工作流外给拒绝提示（Q35；旁路不承接通用对话——通用形态已被 way1 吸收）。
+- **CLI 旗标**：`--state PATH` 断点库路径（默认 `<cwd>/.project-agent/state.db`，每项目一会话）、`--config PATH` 配置路径（默认全局 `~/.project-agent/config.env`）、`--new-session` 丢弃续跑另起新 thread（Q59/Q67）。（**`/teach-me off` 恢复路径未实现，见欠账**）
 - **首启两层**：见"运行时与配置"节（应用级=配置窗口 + 终端 fallback；项目级=单题指引偏好）。
 - **开场序列**：banner（`Project Agent。输入 /help 查看命令。`）→ 空行 → `今天要做什么呢？` → 用户首条自由文本即图输入。
 
@@ -457,6 +457,10 @@ Status: ready-for-agent
 | 工具执行回路 | actor 只发文本指令桥（`写入：`/`记录：`），无真实工具调用环——`<Shell>/<Glob>/<FileRead>/<DocScaffold>/<AskUserQuestion>` 尚未执行 | 工具票 |
 | decision_mode / skill_packs 图内消费者 | 字段有写入（配置窗口/种子注入），图内零消费（shell 审批档位接线未接） | 权限接线票 |
 | AskUserQuestion 工具本体 | 仅协议级"提问断点"语义，无工具实现 | 工具票 |
+| SkillRecommend 工具本体 | 矩阵里有声明，用户故事 28 依赖它，但无实现（推荐目前靠 actor 提示词） | 工具票 |
+| `/teach-me off` 恢复路径 | 13 票 B 节裁定"清回 `""`"，spec 命令表与代码 `_COMMANDS` 双缺 | 指引票 |
+| 桌面密钥文件读取 | Q64 用户明示可从 `storage/apikey.txt` 读键，代码无此路径（现只读 `config.env`） | 配置票 |
+| 技能包两级（包 vs 技能） | Q9/Q10 裁定"启动选包、包内多技能、完整 Matt Pocock 包"；现状只有 `skill_packs: list[str]` 扁平串 + 4 条 SkillHead，`skill_body` 为模拟全文桩 | 技能票 |
 | TodoWrite 私有面板 key | 概念在（各角色私有），state 里无对应 key | 工具票 |
 | 旁路 checkpointer 持久化 | AskBypass 有独立 thread，但历史未落盘（重启即失） | 旁路票 |
 | current_scope 写者 | assembler 落定，actor 声明未实现 | 作用域票 |
@@ -487,7 +491,7 @@ Status: ready-for-agent
 
 ## Further Notes
 
-- 决策全量台账：`.scratch/project-agent/decisions.md`（Q1–Q68，含演化痕迹与否定记录）
+- 决策全量台账：`.scratch/project-agent/decisions.md`（Q1–Q69，含演化痕迹与否定记录）
 - 研究笔记：`docs/research/langgraph-verification-2026.md`（LangGraph 1.x 事实核查）、`docs/research/shell-permission-survey.md`（8 产品权限调研）
 - 版本敏感警告集中在台账"middleware 事实核查"节——实现前先在锁定版本上验证 `request.override` / `dynamic_prompt` 签名；"END 后同 thread 再 invoke 从 START 重跑且 state 恢复"已实测通过（轮协议的底层前提成立）。
 - v1.1 的推导性决策现已全部落地或转入欠账清单：`turn_end_payload` / `awaiting_input_from` / 环计数器分字段 / `demo_phase` 均已实现；`AskUserQuestion = 提问断点` 仍是协议语义（工具本体欠账）；图内指引无历史累积已由 teach-me 通道一并继承。

@@ -33,7 +33,7 @@ _Avoid_: 智能路由、自动分发
 _Avoid_: agent（泛称）、worker、子agent
 
 **REPL 宿主 (REPL Host)**:
-**后端**侧的交互外壳层——终端 I/O、斜杠路由、断点持有、shell 审批回调、本地账单。
+**后端**侧的交互外壳层——协议服务、斜杠路由、断点持有、shell 审批回调、本地账单。终端 I/O 只是它在过渡态（前端未接线时）的**降级出口**，不是它的定义；观感与渲染归前端。
 _Avoid_: 前端、壳层、CLI框架
 
 **前端 (Frontend)**:
@@ -55,6 +55,18 @@ _Avoid_: API、接口、事件、websocket 消息
 **终端降级渲染 (Terminal Fallback Rendering)**:
 把任意下行协议消息折成终端行的纯函数路径——前端未接线时后端裸终端即走此路（`default_rendering`）；不是"简化版界面"，是与前端平行的第二个消费者。
 _Avoid_: 降级模式、兼容层、老版本路径
+
+**相位 (Phase)**:
+主工作流图里"一轮 invoke 内可以跑完的一段连续节点簇"——每轮只走一个相位簇然后到 END；从哪个相位切入由入口路由器按仪表盘重建，不靠 mid-graph 挂起。
+_Avoid_: 阶段（stage）、步骤、环节
+
+**相位图 (Phase Graph)**:
+把主工作流图理解为"相位 + 相位间条件边"的形态——START 只有一组条件边（`route_from_start`）覆盖全部相位入口；唯一的多节点簇是主环（assembler→actor→verifier→maybe planner）。**不是**线性流程图。
+_Avoid_: 流程图、线性流水线、DAG
+
+**表即契约 (Table as Contract)**:
+仪表盘字段表 / 入口路由真值表 / 断点协议表 / 协议消息表——测试逐行断言表与代码一致；表与 spec 不一致 = 缺陷（除非记在"已知欠账"）。
+_Avoid_: 文档约定、规范建议、参考表
 
 **主工作流图 (Main Workflow Graph)**:
 从 ask_tasks 到 FINISH 的单一大图，含 planner→actor→verifier 主环。
@@ -123,11 +135,11 @@ _Avoid_: 共享上下文、shared state
 _Avoid_: 全局上下文、黑板、黑板板
 
 **AskAgent 双通道**:
-AskAgent 的两条调用路径——REPL 旁路直答（拉式问答）与图内新手指引注入（推式教学）。
+AskAgent 的两条调用路径——REPL 旁路直答（拉式问答）与图内新手指引注入（推式教学）；teach-me 是图内通道的**第三形态**（重形态），不改双通道的通道划分。
 _Avoid_: 双agent、分身
 
 **teach-me（深度教学）**:
-指引的三选形态之外的重形态——单发调用生成一页自包含 HTML 教学页（概念清单可勾选），落盘 `teach-me/R{n}/index.html`，无历史累积。
+ask 档四选之一的重形态——单发调用生成一页自包含 HTML 教学页（概念清单可勾选），落盘 `teach-me/R{n}/index.html`，无历史累积。指引本身是三态（auto/ask/off）；teach-me 只存在于 ask 档的四选里。
 _Avoid_: 教程、文档、课件
 
 **讲解 (Guidance)**:
@@ -153,12 +165,27 @@ _Avoid_: 首启问卷（那是项目级的）、设置页
 _Avoid_: 连通性检查、健康检查
 
 **种子注入 (Seed Injection)**:
-REPL 首条输入随行并入仪表盘无值字段（decision_mode 来自配置窗口、skill_packs 默认 `["default"]`），仅生效一次。
-_Avoid_: 初始化、预设、默认值
+REPL 首条输入随行并入仪表盘无值字段（decision_mode 来自配置窗口、skill_packs 默认 `["default"]`），仅生效一次。_Avoid_: 初始化、预设、默认值
 
 **engine**:
 唯一启动命令（旧名 `project-agent` 废弃）；`pipx` 分发。
 _Avoid_: 入口脚本、CLI 名
+
+**首启两层 (Two-layer First Run)**:
+应用级 = 配置窗口（模型与 key）+ 终端 fallback；项目级 = 单题指引偏好（在 build_ways 之后问）。两层互不替代，应用级一次、项目级每项目一次。
+_Avoid_: 初始化流程、新手引导、wizard
+
+**本地账单 (Local Ledger)**:
+按 thread × 角色聚合的 token 用量账，落 `--state` 同目录 `ledger.json`；纯本地、不上报（Q39 红线）。
+_Avoid_: 用量统计、计费、遥测
+
+**技能包 (Skill Pack)**:
+一组技能的集合，`skill_packs` 存的是**包**清单（启动时选加载哪些包）；包内每个技能才是 SKILL.md 的单位。与"技能"两级，不可混用。
+_Avoid_: 插件、扩展、技能列表
+
+**学习者画像 (Learner Profile)**:
+teach-me 的纯代码维护文件 `learner-profile.md`——记录已掌握概念，供下次生成教学页时避免重教；与教学日志 `session.md` 配套。
+_Avoid_: 用户档案、个人资料、画像模型
 
 ### 工具与权限
 

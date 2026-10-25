@@ -247,7 +247,7 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 **Q68（spec v2.0 回灌 + 文档纪律，2026-10-26 凌晨，用户指令）**：用户指出"倒数十轮的新想法没有重新进 spec，项目文档都没改动就开工，那不是没改动吗"——裁定**冲突以新为准**，要求把这十轮的裁定全部补充入 spec。核对结果：spec 停在 v1.7，Q64 真模型接线、Q65 UX 五裁定、Q66 teach-me、Q67 壳票**全部未入文档**，且正文有 4 处与新发展正面冲突（"v1 全 CLI""Web UI/前端已砍""rich/textual 后置""项目级四问"）。
 - **spec 升 v2.0（重写而非打补丁）**：版本志补齐 v1.5/v1.6/v1.7/v1.8/v2.0 五行（此前 v1.5 的回填做了但版本志漏记，版本号从 v1.4 直接跳到 v1.6）；正文按现状态重写——总体架构改双运行时、新增"运行时与配置（v1.8 真模型接线）"节、图拓扑改**相位图**（每轮单相位 + END，纠正原文"一轮跑完整个流程"的错误表述）、仪表盘写者列按 Q65/Q67 改口（user_mode←guidance_trigger 推导、decision_mode←配置窗口+种子、skill_packs←种子+`/skills`）、新增"指引与教学通道""文案可读性契约""外观与分发""工程护栏""已知欠账"五节。
 - **冲突作废显式记档**：Out of Scope 中三条旧条目划线并标注"v2.0 作废"（v1 全 CLI / Web UI 已砍 / rich-textual 后置）——**不静默删除**，保留演化痕迹。
-- **新增"已知欠账"节**：16 行表格，把"设计已定、实现未落地"的差额集中记账（工具执行回路、decision_mode/skill_packs 图内消费者、AskUserQuestion 本体、TodoWrite key、旁路持久化、current_scope 写者、verify_link、final_report 注入、ask 档内容循环、压缩挂点补全、官方 Store、前端 UX-2/UX-3、guidance_read_version 门归属、planner 模板覆盖、nodes.py 拆分）。**纪律**：spec 与代码不一致只允许出现在此表——否则即缺陷。
+- **新增"已知欠账"节**：初版 16 行（契约审计后扩至 20 行），把"设计已定、实现未落地"的差额集中记账（工具执行回路、decision_mode/skill_packs 图内消费者、AskUserQuestion 本体、TodoWrite key、旁路持久化、current_scope 写者、verify_link、final_report 注入、ask 档内容循环、压缩挂点、官方 Store、前端 UX-2/UX-3、guidance_read_version 门归属、planner 模板覆盖、nodes.py 拆分；审计后补 `/teach-me off`、桌面密钥读取、SkillRecommend 本体、技能包两级）。**纪律**：spec 与代码不一致只允许出现在此表——否则即缺陷。
 - **新纪律（治本次根因）**：**新裁定先入 spec/GLOSSARY 再开票**。票面只做"由 spec 到代码"的翻译，不做新设计；spec 未回填就开工 = 流程违规，与"表即契约"同级。
 - **ADR-0005 新立**：双运行时（TS+React19+Ink 前端 / Python 后端，只经协议消息对话）；接缝预算钉死为只新增"前端↔后端"一条；许可红线（无 License 仓只学模式不抄码）；tkinter 仍仅配置窗口；过渡态=后端可裸终端运行。
 - **GLOSSARY 增补九条**：前端 / 后端 / 双运行时 / teach-me（深度教学）/ 讲解 / 四选 / 可读性契约 / 配置窗口 / 测试连接 / 种子注入 / engine——并把"REPL 宿主"词条限定为**后端**侧（原文 _Avoid_ "前端" 与新概念冲突，靠精确化消解而非删除）。术语哨兵不受影响（新增词条均非 _Avoid_ 单词）。
@@ -262,9 +262,22 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **票**：15 票（UX-2 第一片）标 done，含验收测试清单与禁改清单；16 票（UX-3 传输+前端+Bun）开为 ready，列 5 片切片计划与**3 个必须先裁的点**（端口发现 / 产物分发 / 断线恢复语义）——未裁前不得实现。
 - 测试 881 → 882（+26 新，摊薄后净增 28；3 例旧 REPL 断言随渲染升级适配）；ruff 干净、零警告。
 
+**Q70（契约审计修正：spec 与代码直冲突清账，2026-10-26 00:57）**：子代理对 spec/GLOSSARY/ADR/票面做只读契约审计，报 16 条 spec 本体缺陷 + 9 项未入 spec 裁定 + 票面差额 + GLOSSARY 缺口。**逐项对照代码核实后确认 3 条为"表与代码直冲突"（按 Q68 纪律即缺陷）**，当场修：
+- **A4 修正（spec 写反）**：原文写 actor "用 `@dynamic_prompt` / `wrap_model_call` 中间件送达"——09 票已终裁**弃用 langchain middleware**（1.x 版本敏感），代码走 assembler 装入 + actor 读 assembled_context 写 system。spec 改为"不用 langchain middleware；工具清单由 actor system 尾行送达"。
+- **A5 修正（物理不可能）**：压缩挂点原列 `planner`——planner 是纯代码零 LLM 调用（nodes.py docstring 明说"planner 无 LLM 调用不挂"）。改为**四挂点**：assembler / actor / verifier / demo_agent。
+- **A3 修正（自相矛盾）**：正文两处写旁路"独立 checkpointer 记录"，欠账表写"历史未落盘重启即失"——代码 AskBypass 只建 thread 后缀、无落盘。两处正文改为"独立 thread、**历史暂未落盘**（见欠账）"。
+- **A1**：来源行与 Further Notes 统一 Q1–Q69。**A2**：轮的机械化表述改为"一轮 = 一次 invoke、跑一个相位簇"（相位制 Q61），与图拓扑节口径统一。**A6**：Actor 工厂改"4 × 2（`guidance_enabled`）"，指引三态分流归后置工序。**A7**：demo_phase 形状改"未设/building/skipped/done"（代码 `_after_docs_done` 认 done）。**A8**：真值表 ≥5 与断点协议 =5 统一为 **≥5**（含图拓扑表三处）。**A9**：集成分支缺 LICENSE（main 有）——已 `git checkout main -- LICENSE` 恢复，spec 改口"仓库根 LICENSE 已入集成分支"。
+- **A10/A11**：用户故事 28/29 加"当前未接线，见欠账"；故事 35 由"侧栏/折叠面板"降级为"独立段落"（代码无侧栏）。**A12**：路由节补 CLI 旗标（`--state` / `--config` / `--new-session`）。**A13**：补**交付物集定义表**（way1 无 / way2 IDEA.md / way3 三件 / way4 六件）。**A16**：权限矩阵补 `DocScaffold`，并注明 `SkillRecommend`/`AskUserQuestion` 仅声明无本体。
+- **B 节裁定补入**：Q9/Q10 技能包两级（包 vs 技能、启动选包、完整 Matt Pocock 包、模拟全文桩现状）写进"技能懒加载"并落欠账；Q35 `/ask-for-help` 前置条件补入路由节。
+- **欠账表 16 → 20 行**：新增 `/teach-me off` 恢复路径（双缺）、桌面密钥读取（Q64 用户明示但代码无此路径）、SkillRecommend 本体、技能包两级。
+- **GLOSSARY 三处矛盾修正**：teach-me 词条"三选形态"→"ask 档四选之一（指引三态是另一维度）"；AskAgent 双通道词条补"teach-me 是图内通道第三形态"；REPL 宿主"终端 I/O"→"协议服务"，终端 I/O 降级为过渡态出口。**新增 6 词条**：相位 / 相位图 / 表即契约 / 首启两层 / 本地账单 / 技能包 / 学习者画像。
+- **台账自身**：Q47 挂起项划掉（Q47 早已终裁不做，台账 stale）；欠账行数记账更新。
+- 验证：spec 500 行 / 75 用户故事 / 20 行欠账 / 表格全闭合；GLOSSARY 词条 43 → 49 且哨兵绿；882 测试全绿、ruff 干净。
+- **未修（留待用户裁）**：D 节建议的三份 ADR（文案可读性契约 / 配置格式 / 单题问卷）——属"补决策记录"而非冲突，不擅立；13 票 C 节问卷文案表被 14 票整表替换但票面未改口（票面 stale，需重写票 13 或加作废标记）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
-- Q47 archify 渲染交互式架构图（待图定稿）
+- ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）
 - ~~Q15 CLI 框架 / Q16 后端形态 / CLI 界面细节（后置）~~ → **已由 Q65 裁定**（CLI 框架 = React 19 + Ink；后端形态 = Python 后端 + 双运行时 ADR-0005；界面细节 = 观感对齐 Claude Code）。剩余未落地部分转 spec「已知欠账」表的"前端传输层（UX-2 余下）/ 前端界面（UX-3）"两行。
 
 ## 事实核查基准
