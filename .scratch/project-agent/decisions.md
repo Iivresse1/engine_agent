@@ -215,7 +215,8 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **runtime.py 一站装配**：主/廉价客户端各包 MeteredModel 共享 TokenLedger（--state 同目录 ledger.json）；cheap=sub_model 缺省同主（同一实例省一次构造）；AskBypass 独立 thread（`{thread_id}-ask` 后缀，ADR-0002 物理隔离）；client_factory 注入缝=测试零网络全链路。
 - **cli.py 接线**：build_graph(model=…, cheap_model=…, workspace_root=cwd) ——verifier 环闭合、压缩横切四挂点亮、/compact 与 /ask-for-help 可用；banner 去"01 骨架"字样。05 票 TODO 哨兵测试退役改钉真接线（"TODO not in src"反向断言）。
 - **.gitignore 加固**：.env/.env.*/*.env/config.json/ledger.json/state.db/state.db.session.json/.project-agent/——密钥与本地状态全类目防推送。
-- **端到端实测**（真 DeepSeek key）：问卷四问→重启续跑→build_ways 真模型调用（recommendation "轻 grill"+个性化理由，非静态兜底"完整文档"）→ledger.json 落账 actor 1 调用 59入/16出。**主环正式活**——`再聊聊`类自由输入即走 assembler→actor→verifier 全环。
+- **端到端实测**（真 DeepSeek key）：问卷四问→重启续跑→build_ways 真模型调用（recommendation "轻 grill"+个性化理由，非静态兜底"完整文档"）→ledger.json 落账 actor 1 调用 59入/16出。**主环正式活**——`再聊聊`类自由输入即走 assembler→actor→verifier 全环；actor 实测自发调技能（grilling/to-spec/tdd 头注入生效），way1 决议+规划轮+对话轮三连冒烟全过。
+- **续跑断点回灌 bug（冒烟发现即修，+3 测试 821 绿）**：跨进程重启在 RESOLUTION 类断点（choice:build_way）上丢首答——ReplHost 启动时 _last_state 空，fusion 把答案当 reason=None 融主线而非决议通道，choice 原样重发。修复 = run() 起手 `_seed_state_from_checkpoint()`（app.get_state 回灌末态；桩 app 无 get_state 跳过）。红绿双向验证（禁用回灌→红）。**根因属 01 票"断点持久化"欠账的盲区**：当时只验证了 question 类断点续跑（fusion 主线路径），RESOLUTION 通道跨进程是冒烟首覆盖。
 - **依赖**：+langchain-openai>=1.0（pip 实装 1.7.2，openai 3.37 传递带入）。
 - **接续**：v1.5 背欠清首项；余项（工具执行回路/decision_mode·skill_packs 图内消费者/AskUserQuestion 本体/…）不变。UX 票（engine 命名/tkinter 首启窗口/问卷重编排）在 grill 会话已锁定方向待开票。
 

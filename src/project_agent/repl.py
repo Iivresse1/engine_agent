@@ -81,6 +81,7 @@ class ReplHost:
         self._pending_compression: dict[str, Any] | None = None
 
     def run(self) -> None:
+        self._seed_state_from_checkpoint()
         self._io.write_line(_BANNER)
         while True:
             line = self._io.read_line()
@@ -95,6 +96,22 @@ class ReplHost:
                     return
                 continue
             self._run_round(text)
+
+    def _seed_state_from_checkpoint(self) -> None:
+        """跨进程续跑：首条输入前从 checkpointer 回灌末态。
+
+        否则 RESOLUTION 类断点（choice:build_way 等）续跑后的首答被
+        fusion 当 reason=None 融进主线（actor_messages），决议通道
+        （resolution_inputs）拿不到——答数静默丢失，choice 原样重发。
+        会话内不复现（last_state 始终有值），唯跨进程重启命中。
+        测试桩 app 无 get_state → 跳过（首跑新 thread 值为空亦跳过）。
+        """
+        get_state = getattr(self._app, "get_state", None)
+        if get_state is None:
+            return
+        values = getattr(get_state(self._config), "values", None)
+        if isinstance(values, dict) and values:
+            self._last_state = dict(values)
 
     def _dispatch(self, text: str) -> bool:
         """斜杠命令前缀匹配分发（零 LLM）。返回 True 表示退出。"""

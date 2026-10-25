@@ -18,3 +18,7 @@ ledger.json
 state.db
 state.db.session.json
 .project-agent/
+
+# 自托管冒烟产物（workspace_root=cwd 时 actor 落盘；用户项目里是合法交付物）
+BUILD_LOG.md
+NOTES.md
