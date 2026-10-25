@@ -15,11 +15,16 @@ from project_agent.protocol import (
 VALID_PAYLOADS = {
     RoundEndReason.ROUND: {"round_output": "本轮产出概览", "todo_board": ["pending: 搭骨架"]},
     RoundEndReason.QUESTION: {
-        "question_text": "你想用什么构建方式？",
-        "options": ["对话", "轻 grill", "简化文档", "完整文档"],
+        "question_text": "构建方式 —— 决定 agent 用多重的流程陪你把这个项目做出来",
+        "explanation": "影响流程重量与文档产出",
+        "options": [
+            "对话 —— 像聊天一样推进，不产出文档",
+            "轻 grill —— 少量追问压测计划，文档极简",
+        ],
         "asker": "actor",
     },
     RoundEndReason.CHOICE_BUILD_WAY: {
+        "explanation": "决定 agent 用多重的流程陪你把这个项目做出来",
         "options": ["way1", "way2", "way3", "way4"],
         "recommendation": "way3",
         "recommendation_reason": "个人作品有沉淀不臃肿",
@@ -121,6 +126,7 @@ def test_dashboard_fields_cover_spec_contract():
         "round_count",
         "notes_version",
         "guidance_read_version",
+        "teach_me_pref",  # 13 票：ask 模式"以后都深度教学"决议（"" | "always"）
         "compacted_rounds",  # 08：仪表盘 +compacted_rounds，spec 待 Lead 补录 v1.4
         "current_scope",
         "turn_end_reason",

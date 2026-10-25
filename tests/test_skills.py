@@ -16,14 +16,15 @@ from project_agent.skills import (
 )
 
 
-def test_skill_heads_list_three_skills():
-    """技能头三件：grilling / tdd / to-spec（名字+一句话）。"""
+def test_skill_heads_list_four_skills():
+    """技能头四件：grilling / tdd / to-spec / teach-me（13 票新增）。"""
     heads = skill_heads()
     assert heads == SKILLS
     assert [(h.name, h.one_liner) for h in heads] == [
         ("grilling", "连珠追问压测计划"),
         ("tdd", "红绿重构测试先行"),
         ("to-spec", "把决策沉淀为规格"),
+        ("teach-me", "页面式深度教学：生成可勾选概念的 HTML 教学页"),
     ]
     assert all(isinstance(h, SkillHead) for h in heads)
 

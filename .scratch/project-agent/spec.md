@@ -1,7 +1,7 @@
 # Spec: 项目构建 Agent（Project Agent）v1.2
 
 Status: ready-for-agent
-发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）；v1.3 增补（2026-10-25）：仪表盘字段表补录 round_count（06 票【R#】编号源）；v1.4 增补（2026-10-25）：仪表盘字段表补录 compacted_rounds（08 票压缩溯源）
+发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）；v1.3 增补（2026-10-25）：仪表盘字段表补录 round_count（06 票【R#】编号源）；v1.4 增补（2026-10-25）：仪表盘字段表补录 compacted_rounds（08 票压缩溯源）；v1.6 增补（2026-10-25）：断点协议 question/choice:build_way 行 +explanation（13 票文案可读性）、仪表盘 +teach_me_pref、ask 档指引询问真断点化（四选含 teach-me 深度教学——用户裁定）
 来源: 32 轮 grilling 设计会话（决策台账 .scratch/project-agent/decisions.md，47+ 决策）
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0004
 
@@ -148,6 +148,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | round_count | int 单调递增 | actor 每产出一轮 +1 | 【R#】轮次编号源（06 票补录 v1.3） |
 | compacted_rounds | list[(start,end)] | run_compression_check 追加 | 已压缩轮区间（08 票补录 v1.4——溯源断链检测数据源） |
 | guidance_read_version | int | AskAgent 消费后对齐 | 已读水位 |
+| teach_me_pref | str（""\|"always"） | ask 模式四选决议（13 票） | "以后都深度教学"后每轮直接生成教学页 |
 | current_scope | scope key | actor 声明、assembler 落定 | 规则文件 + 工具子集选择 |
 | turn_end_reason | 枚举（见断点协议） | 产生断点的节点 | 断点协议主键 |
 | turn_end_payload | 受控形状 | 同上 | REPL 渲染材料（问题文本/选项/交付概览） |
@@ -205,8 +206,8 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | turn_end_reason | 触发 | payload | 下条输入融合到 |
 |---|---|---|---|
 | round | actor 轮终（默认） | 轮产出 + todo 板 | actor_messages |
-| question | AskUserQuestion / grilling 提问 / ask 档指引询问 | 问题文本 + 选项 + 提问角色 | awaiting_input_from 指向的私有 key |
-| choice:build_way | build_ways | 4 选项 + 推荐 + 一句话理由 | 决议节点写 build_way |
+| question | AskUserQuestion / grilling 提问 / ask 档指引询问（13 票真断点化，四选含 teach-me） | 问题文本 + 解释 + 选项 + 提问角色 | awaiting_input_from 指向的私有 key |
+| choice:build_way | build_ways | 解释 + 4 选项 + 推荐 + 一句话理由 | 决议节点写 build_way |
 | choice:proposal | 三方案并行 | 3 方案摘要 | 决议节点写 selected_proposal |
 | docs_done | is_docs_finished=true | 交付概览 + demo?/自定义 | 决议节点写 demo_phase |
 | loop_exhausted | 任一环计数=5 | 现场与求助说明 | 自由融合（人工接管） |

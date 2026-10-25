@@ -14,7 +14,13 @@ from project_agent.graph import build_graph
 from project_agent.nodes import make_build_ways_node
 from tests.doubles.fake_model import ScriptedModel
 
-BUILD_WAY_OPTIONS = ["对话", "轻 grill", "简化文档", "完整文档"]
+_LONG_OPTIONS = [
+    "对话 —— 像聊天一样推进，不产出文档",
+    "轻 grill —— 少量追问压测计划，文档极简",
+    "简化文档 —— 核心 README/TODO，轻量直接",
+    "完整文档 —— 完整规格/ADR/术语表，适合长期维护",
+]
+_STATIC_RECOMMENDATION = "简化文档 —— 核心 README/TODO，轻量直接"
 
 
 def _say(text: str) -> dict:
@@ -41,8 +47,8 @@ def test_static_choice_breakpoint_payload_shape():
     assert updates["build_way"] is None if False else True  # 未写 build_way
     assert updates["turn_end_reason"] == "choice:build_way"
     payload = updates["turn_end_payload"]
-    assert payload["options"] == BUILD_WAY_OPTIONS
-    assert payload["recommendation"] == "简化文档"
+    assert payload["options"] == _LONG_OPTIONS
+    assert payload["recommendation"] == _STATIC_RECOMMENDATION
     assert payload["recommendation_reason"] == "个人作品有沉淀不臃肿"
     assert len(payload["recommendation_reason"]) <= 20
     assert "resolution_inputs" not in updates or updates.get("resolution_inputs") == []
@@ -74,17 +80,20 @@ def test_static_reentry_with_build_way_set_returns_empty():
         ("选项 4", "way4"),
         ("方式1", "way1"),
         ("选 1", "way1"),
-        ("推荐那个", "way3"),  # recommended=简化文档
+        ("推荐那个", "way3"),  # recommended=简化文档（长标签）
         ("做个 2048 游戏", None),  # \W 不含汉字：不会误中语境序号
         ("随便说点什么", None),
         ("", None),
         (None, None),
+        # 13 票长选项原文整串可解释
+        ("完整文档 —— 完整规格/ADR/术语表，适合长期维护", "way4"),
+        ("对话 —— 像聊天一样推进，不产出文档", "way1"),
     ],
 )
 def test_interpret_build_way(text, expected):
     from project_agent.nodes import _interpret_build_way
 
-    assert _interpret_build_way(text, recommended="简化文档") == expected
+    assert _interpret_build_way(text, recommended=_STATIC_RECOMMENDATION) == expected
 
 
 # ---------- 决议通道消费：pending 解释 → 写 build_way + 清空 + round_end ----------
@@ -95,7 +104,7 @@ def test_pending_resolution_consumed_writes_build_way():
     state = {
         "task_brief": "x",
         "resolution_inputs": ["1"],
-        "turn_end_payload": {"recommendation": "简化文档", "options": BUILD_WAY_OPTIONS},
+        "turn_end_payload": {"recommendation": _STATIC_RECOMMENDATION, "options": _LONG_OPTIONS},
     }
     updates = node(state)
     assert updates["build_way"] == "way1"
@@ -109,8 +118,9 @@ def test_pending_uninterpretable_reshows_choice_reusing_last_payload():
     model = ScriptedModel([])
     node = make_build_ways_node(model)
     last_payload = {
-        "options": BUILD_WAY_OPTIONS,
-        "recommendation": "完整文档",
+        "explanation": "决定 agent 用多重的流程陪你把这个项目做出来",
+        "options": _LONG_OPTIONS,
+        "recommendation": "完整文档 —— 完整规格/ADR/术语表，适合长期维护",
         "recommendation_reason": "沉淀最全",
     }
     state = {
@@ -135,7 +145,7 @@ def test_pending_uninterpretable_without_valid_payload_falls_back_to_static():
     }
     updates = node(state)
     assert updates["turn_end_reason"] == "choice:build_way"
-    assert updates["turn_end_payload"]["recommendation"] == "简化文档"
+    assert updates["turn_end_payload"]["recommendation"] == _STATIC_RECOMMENDATION
 
 
 # ---------- ModelClient 驱动推荐 ----------
@@ -156,7 +166,7 @@ def test_model_driven_recommendation_contract():
     assert "1=对话" in prompt and "4=完整文档" in prompt
 
     payload = updates["turn_end_payload"]
-    assert payload["recommendation"] == "轻 grill"
+    assert payload["recommendation"] == "轻 grill —— 少量追问压测计划，文档极简"
     assert payload["recommendation_reason"] == "轻量起步快"
 
 
@@ -165,7 +175,10 @@ def test_model_output_reason_hard_truncated_to_20():
     node = make_build_ways_node(model)
     updates = node({"task_brief": "x", "resolution_inputs": []})
     assert len(updates["turn_end_payload"]["recommendation_reason"]) == 20
-    assert updates["turn_end_payload"]["recommendation"] == "完整文档"
+    assert (
+        updates["turn_end_payload"]["recommendation"]
+        == "完整文档 —— 完整规格/ADR/术语表，适合长期维护"
+    )
 
 
 def test_model_garbage_output_falls_back_to_static():
@@ -173,7 +186,7 @@ def test_model_garbage_output_falls_back_to_static():
     node = make_build_ways_node(model)
     updates = node({"task_brief": "x", "resolution_inputs": []})
     payload = updates["turn_end_payload"]
-    assert payload["recommendation"] == "简化文档"
+    assert payload["recommendation"] == _STATIC_RECOMMENDATION
     assert payload["recommendation_reason"] == "个人作品有沉淀不臃肿"
 
 
@@ -181,7 +194,10 @@ def test_model_output_may_be_way_label_or_index():
     model = ScriptedModel(["完整文档|理由"])
     node = make_build_ways_node(model)
     updates = node({"task_brief": "x", "resolution_inputs": []})
-    assert updates["turn_end_payload"]["recommendation"] == "完整文档"
+    assert (
+        updates["turn_end_payload"]["recommendation"]
+        == "完整文档 —— 完整规格/ADR/术语表，适合长期维护"
+    )
 
 
 def test_node_callable_without_config():
@@ -189,7 +205,10 @@ def test_node_callable_without_config():
     model = ScriptedModel(["way1|对话起步"])
     node = make_build_ways_node(model)
     updates = node({"task_brief": "x", "resolution_inputs": []})
-    assert updates["turn_end_payload"]["recommendation"] == "对话"
+    assert (
+        updates["turn_end_payload"]["recommendation"]
+        == "对话 —— 像聊天一样推进，不产出文档"
+    )
 
 
 def test_choice_flow_through_graph():
@@ -202,7 +221,7 @@ def test_choice_flow_through_graph():
         {"task_brief": "记账 CLI", "resolution_inputs": []}, cfg
     )
     assert r1["turn_end_reason"] == "choice:build_way"
-    assert r1["turn_end_payload"]["options"] == BUILD_WAY_OPTIONS
+    assert r1["turn_end_payload"]["options"] == _LONG_OPTIONS
 
     # REPL 融合：resolution_inputs = [*existing, text]
     pending = [*r1["resolution_inputs"], "1"]

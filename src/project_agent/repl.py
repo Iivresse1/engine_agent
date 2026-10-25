@@ -17,6 +17,8 @@ from project_agent.config import IO
 from project_agent.fusion import fusion_update
 from project_agent.hybrid_router import route_input
 from project_agent.nodes import run_compression_check
+from project_agent.protocol import RoundEndReason
+from project_agent.rendering import render_question_payload
 
 _BANNER = "Project Agent。输入 /help 查看命令。"
 _FAREWELL = "再见"
@@ -281,6 +283,10 @@ class ReplHost:
         reason = result.get("turn_end_reason") or "未记录"
         payload = result.get("turn_end_payload") or {}
         self._io.write_line(f"断点 · {reason}")
+        if reason == RoundEndReason.QUESTION.value and "question_text" in payload:
+            for line in render_question_payload(payload):
+                self._io.write_line(line)
+            return
         for key, value in payload.items():
             self._io.write_line(f"  {key}: {value}")
 

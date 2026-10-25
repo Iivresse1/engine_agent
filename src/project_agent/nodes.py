@@ -66,6 +66,13 @@ from project_agent.routing import _todos_all_completed, derive_actor_config
 from project_agent.scopes import rule_for, tools_for_scope
 from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
 from project_agent.skills import recommendation_reason, skill_heads
+from project_agent.teach_me import (
+    GUIDANCE_EXPLANATION,
+    GUIDANCE_OPTIONS,
+    GUIDANCE_QUESTION_TEXT,
+    interpret_teach_choice,
+    run_teach_me,
+)
 from project_agent.tools.registry import ALL_TOOLS
 
 # 已注册技能名集合（触发判定的命中表）
@@ -73,16 +80,22 @@ _SKILL_NAMES = frozenset(head.name for head in skill_heads())
 
 
 # 四种构建方式（GLOSSARY『build_ways』）：标签即 choice payload 的 options
-BUILD_WAY_OPTIONS: list[str] = ["对话", "轻 grill", "简化文档", "完整文档"]
+# 13 票润色："标签 —— 说明"式（渲染层切分加粗）；_WAY_BY_LABEL 键随长标签
+BUILD_WAY_OPTIONS: list[str] = [
+    "对话 —— 像聊天一样推进，不产出文档",
+    "轻 grill —— 少量追问压测计划，文档极简",
+    "简化文档 —— 核心 README/TODO，轻量直接",
+    "完整文档 —— 完整规格/ADR/术语表，适合长期维护",
+]
 _WAY_BY_LABEL: dict[str, str] = {
-    "对话": "way1",
-    "轻 grill": "way2",
-    "简化文档": "way3",
-    "完整文档": "way4",
+    "对话 —— 像聊天一样推进，不产出文档": "way1",
+    "轻 grill —— 少量追问压测计划，文档极简": "way2",
+    "简化文档 —— 核心 README/TODO，轻量直接": "way3",
+    "完整文档 —— 完整规格/ADR/术语表，适合长期维护": "way4",
 }
 
-# 静态默认（model=None 或模型输出垃圾）
-_STATIC_RECOMMENDATION = "简化文档"
+# 静态默认（model=None 或模型输出垃圾）——推荐值同用长标签
+_STATIC_RECOMMENDATION = "简化文档 —— 核心 README/TODO，轻量直接"
 _STATIC_REASON = "个人作品有沉淀不臃肿"
 
 
@@ -136,6 +149,7 @@ def _choice_breakpoint(
     payload = validate_payload(
         RoundEndReason.CHOICE_BUILD_WAY,
         {
+            "explanation": "决定 agent 用多重的流程陪你把这个项目做出来",
             "options": list(BUILD_WAY_OPTIONS),
             "recommendation": recommendation,
             "recommendation_reason": reason[:20],
@@ -182,8 +196,26 @@ def _todo_board(state: Mapping[str, Any] | None) -> list[str]:
     return board
 
 
+def _guidance_question_breakpoint() -> dict[str, Any]:
+    """指引询问四选断点（13 票：ask 模式真 question 断点，回填 spec L208 本义）。"""
+    payload = validate_payload(
+        RoundEndReason.QUESTION,
+        {
+            "question_text": GUIDANCE_QUESTION_TEXT,
+            "explanation": GUIDANCE_EXPLANATION,
+            "options": list(GUIDANCE_OPTIONS),
+            "asker": Role.ACTOR.value,
+        },
+    )
+    return {
+        "turn_end_reason": RoundEndReason.QUESTION.value,
+        "turn_end_payload": payload,
+        "awaiting_input_from": Role.ACTOR.value,
+    }
+
+
 def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
-    """question 断点：问题文本 + 选项 + 提问角色（spec 断点协议表 question 行）。"""
+    """question 断点：问题文本 + 解释 + 选项 + 提问角色（13 票：+explanation）。"""
     text = spec.question_text
     if hint and spec.novice_hint:
         text = f"{text}{spec.novice_hint}"
@@ -191,6 +223,7 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
         RoundEndReason.QUESTION,
         {
             "question_text": text,
+            "explanation": getattr(spec, "explanation", "") or "",
             "options": list(spec.options),
             "asker": Role.ACTOR.value,
         },
@@ -906,6 +939,53 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
         if model is None:
             return _round_end(_ACTOR_SKELETON_NOTICE, state)
 
+        # 13 票：指引询问四选解释（上轮 question 断点且问卷/构建方式已定
+        # ——图内 question 仅问卷/build_ways/指引三处，前两者必不满足此判定）
+        guidance_ask_consumed = False  # 本轮已消费询问：后置不再发断点
+        if (
+            state.get("turn_end_reason") == RoundEndReason.QUESTION.value
+            and state.get("task_brief")
+            and state.get("build_way")
+            and state.get("guidance_mode") == "ask"
+        ):
+            answer = _latest_human_text(state)
+            choice = interpret_teach_choice(answer)
+            if choice == "teach_always":
+                round_count = int(state.get("round_count") or 0)
+                receipt = run_teach_me(
+                    model,
+                    shared_docs,
+                    state,
+                    round_no=round_count,
+                    round_summary=str(state.get("round_summary") or ""),
+                    doc_slice="",
+                    thread_id=_thread_id_from(config),
+                )
+                return {
+                    "teach_me_pref": "always",
+                    **_round_end(receipt, state),
+                }
+            if choice == "teach":
+                round_count = int(state.get("round_count") or 0)
+                receipt = run_teach_me(
+                    model,
+                    shared_docs,
+                    state,
+                    round_no=round_count,
+                    round_summary=str(state.get("round_summary") or ""),
+                    doc_slice="",
+                    thread_id=_thread_id_from(config),
+                )
+                return _round_end(receipt, state)
+            if choice == "skip":
+                return _round_end("（本轮跳过讲解）", state)
+            if choice == "brief":
+                # 用户已当场决定"要简短讲解"：本轮后置走 auto 同款普通指引
+                guidance_ask_consumed = True
+            else:
+                # 不可解释：重发同一 question 断点（幂等零副作用）
+                return _guidance_question_breakpoint()
+
         cfg = derive_actor_config(state.get("build_way"), state.get("guidance_mode"))
         body = _ACTOR_BODIES.get(cfg["build_way"], _way1_actor_body)
         if body is _grilling_body:
@@ -946,8 +1026,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
         round_text = _delivery_output(text, shared_docs)
         if rejected_writes:
             round_text = f"{round_text}\n（提示：{','.join(rejected_writes)} 不在交付物白名单，已跳过落盘）"
-        # 10：图内新手指引后置工序——版本门（差>0）+ 材料包单发；
-        # 指引文本只进 round_output 尾部，节点写 guidance_read_version 对齐。
+        # 10/13：图内新手指引后置工序——版本门（差>0）+ 材料包单发。
+        # auto 模式：普通指引文本贴 round_output 尾部（既有路径不动）。
+        # ask 模式：发四选 question 断点（spec L208 本义；答案下轮起手解释）。
+        # teach_me_pref="always"（ask 模式决议过"以后都"）：直接 teach-me。
         guidance_mode = state.get("guidance_mode")
         if shared_docs is not None and guidance_mode in ("auto", "ask"):
             notes_version = int(updates.get("notes_version") or 0)
@@ -955,15 +1037,34 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
                 notes_version, int(state.get("guidance_read_version") or 0)
             ):
                 latest_round = int(updates.get("round_count") or 0)
-                guidance_text = build_guidance(
-                    model,
-                    round_summary=round_summary,
-                    notes=shared_docs.notepad_entries(),
-                    doc_slice=shared_docs.read_round(latest_round) or "",
-                    thread_id=_thread_id_from(config),
-                )
-                prefix = "[指引询问] " if guidance_mode == "ask" else ""
-                round_text = f"{round_text}\n{prefix}{guidance_text}"
+                if (
+                    guidance_mode == "ask"
+                    and state.get("teach_me_pref") != "always"
+                    and not guidance_ask_consumed
+                ):
+                    updates["guidance_read_version"] = align_guidance_read(notes_version)
+                    updates.update(_guidance_question_breakpoint())
+                    return updates
+                if guidance_mode == "ask" and state.get("teach_me_pref") == "always":
+                    receipt = run_teach_me(
+                        model,
+                        shared_docs,
+                        {**state, **updates},
+                        round_no=latest_round,
+                        round_summary=round_summary,
+                        doc_slice=shared_docs.read_round(latest_round) or "",
+                        thread_id=_thread_id_from(config),
+                    )
+                    round_text = f"{round_text}\n{receipt}"
+                else:
+                    guidance_text = build_guidance(
+                        model,
+                        round_summary=round_summary,
+                        notes=shared_docs.notepad_entries(),
+                        doc_slice=shared_docs.read_round(latest_round) or "",
+                        thread_id=_thread_id_from(config),
+                    )
+                    round_text = f"{round_text}\n{guidance_text}"
                 updates["guidance_read_version"] = align_guidance_read(notes_version)
         updates.update(_round_end(round_text, {**state, "todos": new_todos}))
         return updates
@@ -1036,9 +1137,14 @@ def make_verifier_node(model: Any = None):
 
 # —— 11 票：docs_done 断点（demo 决议）+ DemoAgent（生成不运行）——
 
-_DOCS_DONE_OPTIONS: list[str] = ["构建 demo", "跳过"]
-# 决议解释关键词（序：跳过先于构建——"不"优先）
-_DOCS_SKIP_KEYWORDS = ("跳过", "不")
+_DOCS_DONE_OPTIONS: list[str] = [
+    "构建 demo —— 生成可运行的基础示例（生成不运行，报错你来贴）",
+    "跳过 —— 直接进入收尾整理",
+]
+# 决议解释关键词（13 票：长选项含"不"字——"生成不运行"——裸 "不" 子串
+# 会误吞构建选项；否定词改整词集合 + 单字答案走等值判定）
+_DOCS_SKIP_KEYWORDS = ("跳过", "不要", "不用", "别")
+_DOCS_SKIP_EXACT = ("不", "2", "否")
 _DOCS_BUILD_KEYWORDS = ("构建", "demo")
 
 
@@ -1095,7 +1201,10 @@ def docs_done_node(state: Mapping[str, Any]) -> dict[str, Any]:
     if pending:
         text = str(pending[-1])
         lowered = text.lower()
-        if any(keyword in text for keyword in _DOCS_SKIP_KEYWORDS) or text.strip() == "2":
+        if (
+            any(keyword in text for keyword in _DOCS_SKIP_KEYWORDS)
+            or text.strip() in _DOCS_SKIP_EXACT
+        ):
             return {
                 "demo_phase": "skipped",
                 "resolution_inputs": [],
@@ -1345,7 +1454,7 @@ def make_check_node(
                 RoundEndReason.LOOP_EXHAUSTED,
                 {
                     "scene": f"终检环计数 5；失败明细：{detail}",
-                    "help_text": "终检连续 5 轮未通过，请人工接管：核对交付物或调整任务简报。",
+                    "help_text": "终检连续 5 轮未通过 —— 请人工接管：调整任务简报，或直接告诉 agent 下一步怎么做。",
                 },
             )
             return {
@@ -1394,7 +1503,7 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
                 f"终检环计数 {final_check_count}；"
                 f"todos {done}/{len(todos)} 完成"
             ),
-            "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
+            "help_text": "已连续 5 轮未通过验收 —— 请人工接管：调整任务简报，或直接告诉 agent 下一步怎么做。",
         },
     )
     return {

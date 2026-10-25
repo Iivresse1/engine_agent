@@ -35,6 +35,7 @@ class Dashboard(TypedDict, total=False):
     round_count: int
     notes_version: int
     guidance_read_version: int
+    teach_me_pref: str  # 13 票："" | "always"（ask 模式"以后都深度教学"决议）
     compacted_rounds: list[Any]  # 08：已压轮区间 [(start,end),...]（溯源断链检测）
     current_scope: str
     turn_end_reason: str

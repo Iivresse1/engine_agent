@@ -36,7 +36,7 @@ def test_three_round_breakpoint_replay():
     # 首启问卷：问答四轮
     r1 = app.invoke(_say("我想做一个记账 CLI"), _cfg())
     assert r1["turn_end_reason"] == "question"  # Q1
-    assert r1["turn_end_payload"]["question_text"] == "你的编程基础？"
+    assert r1["turn_end_payload"]["question_text"] == "你的编程基础 —— 决定 agent 用多大深度和你沟通"
     assert "task_brief" not in r1  # 首轮想法绝不被当答案
     r2 = app.invoke(_say("有一定编程基础"), _cfg())
     assert r2["user_mode"] == "experienced"
@@ -52,7 +52,12 @@ def test_three_round_breakpoint_replay():
 
     r6 = app.invoke(_say("无关键词闲聊"), _cfg())
     assert r6["turn_end_reason"] == "choice:build_way"  # 首入 build_ways：发 choice 断点
-    assert r6["turn_end_payload"]["options"] == ["对话", "轻 grill", "简化文档", "完整文档"]
+    assert r6["turn_end_payload"]["options"] == [
+        "对话 —— 像聊天一样推进，不产出文档",
+        "轻 grill —— 少量追问压测计划，文档极简",
+        "简化文档 —— 核心 README/TODO，轻量直接",
+        "完整文档 —— 完整规格/ADR/术语表，适合长期维护",
+    ]
 
     r7 = app.invoke(_resolve(r6, "用完整文档"), _cfg())
     assert r7["build_way"] == "way4"
@@ -103,7 +108,7 @@ def test_full_onboarding_to_completion_replay():
     # 四问逐轮：答案解释落盘
     r = app.invoke(_say("我不了解编程"), cfg)
     assert r["user_mode"] == "novice"
-    assert "新手推荐 1" in r["turn_end_payload"]["question_text"]  # Q2 带 hint
+    assert "新手推荐选 1" in r["turn_end_payload"]["question_text"]  # Q2 带 hint
     r = app.invoke(_say("自动每轮"), cfg)
     assert r["guidance_pref"] == "auto"
     r = app.invoke(_say("AI 自动审核"), cfg)
@@ -118,7 +123,10 @@ def test_full_onboarding_to_completion_replay():
     r_choice = app.invoke(_say("嗯"), cfg)
     assert r_choice["turn_end_reason"] == "choice:build_way"
     assert len(model.calls) == 1
-    assert r_choice["turn_end_payload"]["recommendation"] == "简化文档"
+    assert (
+        r_choice["turn_end_payload"]["recommendation"]
+        == "简化文档 —— 核心 README/TODO，轻量直接"
+    )
     assert r_choice["turn_end_payload"]["recommendation_reason"] == "简化起步快"
 
     # 决议：序号解释

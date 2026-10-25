@@ -26,15 +26,28 @@ def test_questionnaire_has_four_specs_in_order():
 
 
 def test_option_texts_align_glossary_and_user_stories():
-    """选项文案精确对齐：Q1 编程基础；Q2 三态；Q3 决策；Q4 技能包。"""
+    """选项文案对齐（13 票润色："标签 —— 说明"式；主体与旧版语义一致）。"""
     by_field = {q.field: q for q in QUESTIONNAIRE}
-    assert list(by_field["user_mode"].options) == ["有一定编程基础", "我不了解编程"]
+    assert list(by_field["user_mode"].options) == [
+        "有编程经验 —— 看得懂代码，直接谈实现",
+        "编程新手 —— 需要逐步解释每一步在做什么",
+    ]
     assert list(by_field["user_mode"].values) == ["experienced", "novice"]
-    assert list(by_field["guidance_pref"].options) == ["自动每轮", "每轮询问", "关"]
+    assert list(by_field["guidance_pref"].options) == [
+        "自动讲解 —— 每轮自动附带一段说明",
+        "每轮问我 —— 讲不讲由我当场决定",
+        "关闭 —— 不需要讲解",
+    ]
     assert list(by_field["guidance_pref"].values) == ["auto", "ask", "off"]
-    assert list(by_field["decision_mode"].options) == ["AI 自动审核", "全权人工"]
+    assert list(by_field["decision_mode"].options) == [
+        "AI 自动审核 —— 常规自动通过，高风险才来问我",
+        "全部人工 —— 每个决策都先经我确认",
+    ]
     assert list(by_field["decision_mode"].values) == ["ai_review", "manual"]
-    assert list(by_field["skill_packs"].options) == ["默认技能包", "暂不启用"]
+    assert list(by_field["skill_packs"].options) == [
+        "启用默认包 —— 通用工作方法全量加载",
+        "暂不启用 —— 以后随时用 /skills 添加",
+    ]
     assert list(by_field["skill_packs"].values) == [["default"], []]
 
 
@@ -86,6 +99,13 @@ def test_next_unset_field_treats_empty_list_as_set():
         ("guidance_pref", "每轮询问", "ask"),
         ("guidance_pref", "问我", "ask"),
         ("guidance_pref", "关", "off"),
+        # 13 票长选项原文应可解释
+        ("user_mode", "看得懂代码，直接谈实现", "experienced"),
+        ("user_mode", "需要逐步解释每一步在做什么", "novice"),
+        ("guidance_pref", "讲不讲由我当场决定", "ask"),
+        ("guidance_pref", "不需要讲解", "off"),
+        ("decision_mode", "每个决策都先经我确认", "manual"),
+        ("skill_packs", "以后随时用 /skills 添加", []),
         ("decision_mode", "AI 自动审核", "ai_review"),
         ("decision_mode", "自动审核", "ai_review"),
         ("decision_mode", "全权人工", "manual"),
