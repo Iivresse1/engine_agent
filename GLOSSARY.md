@@ -48,6 +48,14 @@ _Avoid_: 服务端、server
 前后端分进程、只经协议消息对话的形态（ADR-0005）；接缝预算钉死为只新增"前端↔后端"一条。
 _Avoid_: 前后端分离（泛称）、微服务
 
+**协议消息 (Protocol Message)**:
+前后端唯一主接缝上的单向信封——下行（ready/prompt/round_end/notice/teach_page/farewell）供展示，上行（input/quit）供输入；单层 `{"type": ..., 字段}`，缺多字段即 `MessageError`。
+_Avoid_: API、接口、事件、websocket 消息
+
+**终端降级渲染 (Terminal Fallback Rendering)**:
+把任意下行协议消息折成终端行的纯函数路径——前端未接线时后端裸终端即走此路（`default_rendering`）；不是"简化版界面"，是与前端平行的第二个消费者。
+_Avoid_: 降级模式、兼容层、老版本路径
+
 **主工作流图 (Main Workflow Graph)**:
 从 ask_tasks 到 FINISH 的单一大图，含 planner→actor→verifier 主环。
 _Avoid_: 超级图、pipeline、工作流引擎

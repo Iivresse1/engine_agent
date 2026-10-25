@@ -16,9 +16,9 @@ from project_agent.ask_agent import AskBypass
 from project_agent.config import IO
 from project_agent.fusion import fusion_update
 from project_agent.hybrid_router import route_input
+from project_agent.messages import default_rendering, encode, round_end_message
 from project_agent.nodes import run_compression_check
-from project_agent.protocol import RoundEndReason
-from project_agent.rendering import render_question_payload
+from project_agent.rendering import render_breakpoint_lines
 
 _BANNER = "Project Agent。输入 /help 查看命令。"
 _OPENING_PROMPT = "今天要做什么呢？"  # 14 票：开场提示语——首条自由文本即图输入
@@ -89,13 +89,15 @@ class ReplHost:
 
     def run(self) -> None:
         self._seed_state_from_checkpoint()
-        self._io.write_line(_BANNER)
-        self._io.write_line("")
-        self._io.write_line(_OPENING_PROMPT)
+        # UX-2：开场序列走协议消息层（ready）——前端与终端降级共用同一渲染
+        for line in default_rendering(
+            "ready", encode("ready", banner=_BANNER, opening_prompt=_OPENING_PROMPT)
+        ):
+            self._io.write_line(line)
         while True:
             line = self._io.read_line()
             if line is None:  # EOF
-                self._io.write_line(_FAREWELL)
+                self._farewell()
                 return
             text = line.strip()
             if not text:
@@ -105,6 +107,11 @@ class ReplHost:
                     return
                 continue
             self._run_round(text)
+
+    def _farewell(self) -> None:
+        """会话终止：走 farewell 消息（`/exit`、EOF 共用一条渲染路径）。"""
+        for line in default_rendering("farewell", encode("farewell", text=_FAREWELL)):
+            self._io.write_line(line)
 
     def _seed_state_from_checkpoint(self) -> None:
         """跨进程续跑：首条输入前从 checkpointer 回灌末态。
@@ -126,7 +133,7 @@ class ReplHost:
         """斜杠命令前缀匹配分发（零 LLM）。返回 True 表示退出。"""
         command = next((c for c in sorted(_COMMANDS, key=len, reverse=True) if text.startswith(c)), None)
         if command == "/exit":
-            self._io.write_line(_FAREWELL)
+            self._farewell()
             return True
         if command == "/help":
             self._io.write_line("可用命令：" + " ".join(_COMMANDS))
@@ -295,13 +302,11 @@ class ReplHost:
 
         reason = result.get("turn_end_reason") or "未记录"
         payload = result.get("turn_end_payload") or {}
-        self._io.write_line(f"断点 · {reason}")
-        if reason == RoundEndReason.QUESTION.value and "question_text" in payload:
-            for line in render_question_payload(payload):
-                self._io.write_line(line)
-            return
-        for key, value in payload.items():
-            self._io.write_line(f"  {key}: {value}")
+        # UX-2：轮终交付统一走协议消息层（同一份折叠逻辑喂前端与终端降级）
+        lines = render_breakpoint_lines(reason, payload)
+        message = round_end_message(reason, payload, lines)
+        for line in default_rendering(message["type"], message):
+            self._io.write_line(line)
 
     def _status(self) -> None:
         if not self._last_state:
