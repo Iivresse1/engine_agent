@@ -22,7 +22,7 @@ def make_workspace(tmp_path: Path):
 
     def _make(name: str = "ws") -> Workspace:
         root = tmp_path / name
-        return Workspace(root=root, config_path=root / "config" / "config.json")
+        return Workspace(root=root, config_path=root / "config" / "config.env")
 
     return _make
 

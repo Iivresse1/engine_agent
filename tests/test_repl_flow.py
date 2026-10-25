@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from project_agent.config import ConfigStore, ensure_config
+from project_agent.config import ConfigStore, ensure_config, parse_env
 from project_agent.graph import build_graph, new_thread_id
 from project_agent.repl import ReplHost
 from tests.doubles.scripted_io import ScriptedIO
@@ -25,8 +23,9 @@ def test_first_run_onboarding_then_zero_questions_on_restart(workspace):
     assert cfg.api_key == "sk-test"
     assert workspace.config_path.exists()
 
-    data = json.loads(workspace.config_path.read_text(encoding="utf-8"))
-    assert data == {
+    # v1.5：.env 格式落盘（KEY=VALUE 平面）
+    values = parse_env(workspace.config_path.read_text(encoding="utf-8"))
+    assert values == {
         "main_model": "deepseek-chat",
         "api_key": "sk-test",
         "base_url": "",

@@ -18,7 +18,7 @@ from project_agent.fusion import fusion_update
 from project_agent.hybrid_router import route_input
 from project_agent.nodes import run_compression_check
 
-_BANNER = "Project Agent（01 骨架）。输入 /help 查看命令。"
+_BANNER = "Project Agent。输入 /help 查看命令。"
 _FAREWELL = "再见"
 _TERMINAL_NOTICE = "构建已完成（终态）。输入 /exit 退出。"
 _COMPACT_NOT_ENABLED = "压缩未启用（需 --cheap-model 接线）"

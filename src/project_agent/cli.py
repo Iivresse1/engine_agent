@@ -1,4 +1,10 @@
-"""CLI 入口：project-agent 控制台脚本或 python -m project_agent.cli。"""
+"""CLI 入口：project-agent 控制台脚本或 python -m project_agent.cli。
+
+v1.5 接线票：真模型入图——config.env（ensure_config）→ build_model_runtime
+装配 MeteredModel/SharedDocs/AskBypass → build_graph(model=..., cheap_model=...,
+workspace_root=cwd)：verifier 环闭合、压缩横切挂上、/compact 与 /ask-for-help
+可用；账单落 --state 同目录 ledger.json。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ from pathlib import Path
 from project_agent.config import IO, ConfigStore, ensure_config
 from project_agent.graph import build_graph, new_thread_id, sqlite_checkpointer
 from project_agent.repl import ReplHost
+from project_agent.runtime import build_model_runtime
 
 
 class ConsoleIO:
@@ -36,7 +43,8 @@ def _force_utf8_stdio() -> None:
 
 
 def default_config_path() -> Path:
-    return Path.home() / ".project-agent" / "config.json"
+    """config.env（v1.5：.env 密钥惯例格式；旧 config.json 自动迁移）。"""
+    return Path.home() / ".project-agent" / "config.env"
 
 
 def _session_path(state_path: Path) -> Path:
@@ -76,14 +84,30 @@ def main(argv: list[str] | None = None) -> None:
 
     state_path = args.state or args.config.with_name("state.db")
     io: IO = ConsoleIO()
-    ensure_config(ConfigStore(args.config), io)
+    config = ensure_config(ConfigStore(args.config), io)
     thread_id = _load_or_new_thread(_session_path(state_path), fresh=args.new_session)
 
     with sqlite_checkpointer(state_path) as checkpointer:
-        # TODO（真模型票）：MeteredModel(model, TokenLedger(--state 同目录
-        # ledger.json)) 包装后传入——05 骨架 CLI 无真模型，主环 inert。
-        app = build_graph(checkpointer=checkpointer)
-        ReplHost(app, io, thread_id).run()
+        runtime = build_model_runtime(
+            config,
+            ledger_path=state_path.with_name("ledger.json"),
+            workspace_root=Path.cwd(),
+            thread_id=thread_id,
+        )
+        app = build_graph(
+            checkpointer=checkpointer,
+            model=runtime.model,
+            cheap_model=runtime.cheap_model,
+            workspace_root=Path.cwd(),
+        )
+        ReplHost(
+            app,
+            io,
+            thread_id,
+            cheap_model=runtime.cheap_model,
+            shared_docs=runtime.shared_docs,
+            ask_bypass=runtime.ask_bypass,
+        ).run()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # 项目构建 Agent — 设计决策台账
 
-Status: 12 票实现完成 + 终局评审收口 + /retro 环境改进落地（spec v1.5）
+Status: 12 票实现完成 + 终局评审收口 + /retro 环境改进落地 + 真模型接线落地（spec v1.5）
 更新: 2026-10-25
 
 ## 已钉下的决策
@@ -208,6 +208,16 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **契约对账（4，同 7afceda）**：issue-tracker.md 票收口规则——Dashboard 字段/路由真值表改动必须回填 spec+契约测试，表与代码不一致=票未收口。
 - **术语哨兵（2，提交 3b75afa）**：`tests/test_glossary_sentinel.py`——AST 拆词（Camel+snake）对 GLOSSARY `_Avoid_` 单词子集机械强制；tools/ 路径豁免 interrupt/flag（Q23 裁定域术语）；turn_end_reason/payload 标识符豁免（spec 钉死键镜像）；agent/memory/多词避免词判例记哨兵 docstring 不机械禁。**Q62"记档不修"翻案**：TurnEndReason→RoundEndReason 实测仅 5 文件机械替换（12 票测试面成本当时高估），_run_turn/_invoke_turn→_run_round/_invoke_round 同批；字符串键 turn_end_reason/payload 维持 spec 钉定。红绿双向实测。
 - **导航（5，提交 a95cfa7）**：nodes.py 模块 docstring 相位目录（入口/主环/demo/终检/压缩横切，函数名锚点非行号——行号会腐烂）；旧 docstring 停在骨架时代只述 4/14 节点家族。按相位拆四文件的替代方案留待裁（v1.5 接线背欠继续增长时再议，拆有合并成本）。
+
+**Q64（真模型接线票，2026-10-25 傍晚，用户令"先把模型配置起来"）**：Q62 背欠清单首项落地，818 绿零警告，真 DeepSeek 端到端实测。用户明示两条安全要求：①密钥可从桌面 storage/apikey.txt 读取；②配置落 .env 或 yml + .gitignore 防推送泄露。
+- **配置切 .env**（`~/.project-agent/config.env`，KEY=VALUE 平面）：yml 被否（PyYAML 进依赖树违背零冗余）；.env 是密钥文件惯例零新解析依赖。旧 config.json 首读自动迁移（读 json→写 .env→删 json 一次性）；**BOM 容错**（pwsh 管道伪影冒烟实测：parse_env 剥 \ufeff + 问卷输入行 lstrip）——Q63 遗留的加固候选顺手清掉。
+- **OpenAICompatClient**（openai_client.py）：ChatOpenAI 打 OpenAI 兼容端点（DeepSeek/官方皆可）；`base_url` 缺 scheme 归一补 https://（用户手填 "api.deepseek.com" 不补则 openai SDK 报错）；langchain_openai **惰性导入**（模块导入零网络，测试注入 chat 桩即零依赖跑协议面）；usage 双路读取（usage_metadata 优先→response_metadata.token_usage 兜底）。
+- **runtime.py 一站装配**：主/廉价客户端各包 MeteredModel 共享 TokenLedger（--state 同目录 ledger.json）；cheap=sub_model 缺省同主（同一实例省一次构造）；AskBypass 独立 thread（`{thread_id}-ask` 后缀，ADR-0002 物理隔离）；client_factory 注入缝=测试零网络全链路。
+- **cli.py 接线**：build_graph(model=…, cheap_model=…, workspace_root=cwd) ——verifier 环闭合、压缩横切四挂点亮、/compact 与 /ask-for-help 可用；banner 去"01 骨架"字样。05 票 TODO 哨兵测试退役改钉真接线（"TODO not in src"反向断言）。
+- **.gitignore 加固**：.env/.env.*/*.env/config.json/ledger.json/state.db/state.db.session.json/.project-agent/——密钥与本地状态全类目防推送。
+- **端到端实测**（真 DeepSeek key）：问卷四问→重启续跑→build_ways 真模型调用（recommendation "轻 grill"+个性化理由，非静态兜底"完整文档"）→ledger.json 落账 actor 1 调用 59入/16出。**主环正式活**——`再聊聊`类自由输入即走 assembler→actor→verifier 全环。
+- **依赖**：+langchain-openai>=1.0（pip 实装 1.7.2，openai 3.37 传递带入）。
+- **接续**：v1.5 背欠清首项；余项（工具执行回路/decision_mode·skill_packs 图内消费者/AskUserQuestion 本体/…）不变。UX 票（engine 命名/tkinter 首启窗口/问卷重编排）在 grill 会话已锁定方向待开票。
 
 ## 挂起 / 待办
 

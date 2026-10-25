@@ -66,7 +66,8 @@ def test_actor_model_none_no_round_summary():
 
 
 def test_cli_carries_metered_model_todo_comment():
-    """终裁 10：cli.py 仅在 build_graph 调用处加 TODO 注释，零行为改动。"""
+    """v1.5 接线票：TODO 哨兵退役——真接线落地（MeteredModel 经
+    build_model_runtime 装配，build_graph 带 model/cheap_model/workspace_root）。"""
     from pathlib import Path
 
     cli_src = (
@@ -75,7 +76,8 @@ def test_cli_carries_metered_model_todo_comment():
         / "project_agent"
         / "cli.py"
     ).read_text(encoding="utf-8")
-    assert "build_graph(checkpointer=checkpointer)" in cli_src
-    assert "TODO" in cli_src
-    assert "MeteredModel" in cli_src
-    assert "TokenLedger" in cli_src
+    assert "build_model_runtime" in cli_src
+    assert "model=runtime.model" in cli_src
+    assert "cheap_model=runtime.cheap_model" in cli_src
+    assert "workspace_root=Path.cwd()" in cli_src
+    assert "TODO" not in cli_src  # 骨架期欠账注释清账

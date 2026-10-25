@@ -8,3 +8,13 @@ dist/
 .ruff_cache/
 .mypy_cache/
 .worktrees/
+
+# 密钥与本地状态（v1.5 接线票：防推送泄露）
+.env
+.env.*
+*.env
+config.json
+ledger.json
+state.db
+state.db.session.json
+.project-agent/
