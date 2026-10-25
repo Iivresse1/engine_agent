@@ -1,8 +1,8 @@
-# Spec: 项目构建 Agent（Project Agent）v2.0
+# Spec: 项目构建 Agent（Project Agent）v2.1
 
 Status: ready-for-agent
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0005
-来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q68）
+来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q69）
 
 ## 版本志
 
@@ -17,6 +17,7 @@ Status: ready-for-agent
 | v1.6 | 2026-10-25 | question 与 choice:build_way payload +explanation；仪表盘 +teach_me_pref；ask 档指引询问真断点化（四选含 teach-me）——13 票 |
 | v1.7 | 2026-10-25 | 14 票问卷重编排：ask_tasks 瘦身为简报直写、指引一问归 guidance_trigger（发射/消费/user_mode 推导）、入口路由 +guidance_pref 行、首启改配置窗口、决策模式/技能包出问卷 |
 | v1.8 | 2026-10-25 | **真模型接线（Q64）**：配置格式定 .env、OpenAI 兼容客户端、运行时一站装配、本地账单实际落账、密钥防推送加固 |
+| v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`PROTOCOL_MESSAGES` 表（6 类下行 + 2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；传输层（WebSocket）仍欠 |
 | v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
 
 ## Problem Statement
@@ -356,6 +357,32 @@ Status: ready-for-agent
 - **仓库与许可**：远端 `https://github.com/Iivresse1/engine_agent.git`；项目自身以 **Apache-2.0** 发布（远端已有 LICENSE）。集成分支 `integration/project-agent`，收口后并入 `main`。
 - **兼容降级**：无显示环境 / 无 tkinter / 用户取消 → 一律退终端问卷；前端未接线时后端仍可裸终端运行（现状即此形态）。
 
+### 协议消息层（UX-2 契约，v2.1）
+
+前后端唯一主接缝（ADR-0005 接缝预算：这是**新增的唯一一条**）。方向只有两个：下行（后端→前端，展示）与上行（前端→后端，输入）。**业务状态全部留在后端**——前端不持有 Dashboard、不解析决议、不做路由：[前端拿到 `round_end` 只负责"画"，拿到用户按键只负责发 `input`]。
+
+**消息表**（表即契约，与断点协议同等级；字段即形状，缺/多均 `MessageError`）：
+
+| 方向 | type | 字段 | 语义 |
+|---|---|---|---|
+| down | ready | banner, opening_prompt | 会话就绪：横幅 + 开场提示语 |
+| down | prompt | awaiting | 请求输入；awaiting = `awaiting_input_from`（无则 `""`） |
+| down | round_end | reason, payload, lines | 断点交付；lines 为终端降级渲染行（前端可直绘） |
+| down | notice | text | 即时提示（命令回执 / `/status` / 错误文案） |
+| down | teach_page | path, round | 教学页已生成（前端可打开） |
+| down | farewell | text | 会话终止（`/exit`、EOF、终态） |
+| up | input | text | 一条自由文本（含斜杠命令原文，由后端分发） |
+| up | quit | （无） | 请求退出（后端回 `farewell`） |
+
+**四条硬约束**：
+
+1. **信封只一层**：编码结果即 `{"type": "<type>", ...字段}`，无嵌套 envelope、无版本协商字段。解码校验 `type` 在一次查表内完成。
+2. **后端仍需裸终端可用**：`default_rendering(kind, payload)` 是纯函数，把任意下行消息折成终端行（`ready`→两行、`round_end`→`断点 · {reason}` + 载荷逐行、`prompt`→空、`notice`→text、`teach_page`→`教学页已生成：{path}`、`farewell`→text）。前端未接线时 REPL 走此路径，行为与 v2.0 一致（这就是"兼容降级"的落地形态）。
+3. **零业务逻辑在协议层**：`messages.py` 只做形状校验与折叠渲染，不 import 任何图/节点/模型模块（红线：协议层反向依赖图 = 倒退）。
+4. **结构化语义仍走自由文本**：决议类断点的 `payload` 原样透传（前端不得解释），`input` 永远是纯文本——与"统一输入协议 / 图内零 interrupt"一致。
+
+**尚未落地的部分**（记入"已知欠账"）：WebSocket 传输、后端服务化进程模型、前端 Ink 组件、Bun 打包。
+
 ### 路由
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）。
@@ -416,6 +443,7 @@ Status: ready-for-agent
 | 断点渲染 | `render_question_payload(payload, ansi=True/False)` 纯函数断言两层输出（带/不带 ANSI） |
 | 指引与教学 | `interpret_teach_choice` 纯函数（含"以后都"不被吞）；`run_teach_me` 用假模型断言 prompt 含技能全文/画像/日志、三件落盘、回执行 |
 | 续跑回灌 | 跨进程 `_seed_state_from_checkpoint`：桩 app 带 `get_state` 与不带两路；红绿双向验证 |
+| 协议消息层 | `encode`/`decode` 纯函数往返（缺字段/多字段/错类型各造红）；`default_rendering` 六类下行逐行断言；红线哨兵：`messages.py` 不得 import 图/节点/模型模块 |
 | 红线哨兵 | 主包顶层禁网络库 import（新增"顶层 import 即倒退"）+ 不外发数据；术语哨兵 |
 
 **重点测什么**（对应架构红线）：断点续跑的 state 融合正确性（按断点协议表逐行）；隔离红线（角色 A 的历史绝不出现于角色 B 的输入，指引与 teach-me 通道同样受测）；gate AND todos 判定矩阵与入口路由真值表（多分支表驱动）；压缩边界（80% 触发 / 3 轮保护 / 水位 60% / 两包上限）；静态正则的 8 类拦截；终检管线的"零残留+零误伤"；版本号排序的 stale-read 杜绝；**falsy 与子串两个陷阱家族各留回归哨兵**。
@@ -437,7 +465,8 @@ Status: ready-for-agent
 | ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
 | 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
-| 前端（UX-2/UX-3） | 双运行时已裁定，协议服务化与 Ink 前端未开票 | UX 票 |
+| 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输、后端服务化进程模型未做 | UX 票 |
+| 前端界面（UX-3） | Ink/React 19 组件、按键、Bun 打包未开票 | UX 票 |
 | guidance_read_version 门归属 | assembler 先消费 vs 指引通道自消费，未终裁 | 待裁 |
 | planner 模板覆盖修复 todo | 终检环回 planner 会覆盖修复项，持久化未定 | 待裁 |
 | nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做 | 待裁 |

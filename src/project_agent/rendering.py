@@ -71,4 +71,63 @@ def render_question_payload(
     return lines
 
 
-__all__ = ["render_question_payload", "split_option", "supports_ansi"]
+def render_choice_payload(
+    payload: Mapping[str, Any], *, ansi: bool | None = None
+) -> list[str]:
+    """choice / 决议类断点 → 终端行（规格同 question：主体、解释、编号选项、推荐理由）。
+
+    适用 `choice:build_way`（explanation + options + recommendation +
+    recommendation_reason）、`choice:proposal`（proposal_summaries 视作选项）、
+    `docs_done`（deliverables_overview 视作解释 + options）。
+    """
+    use_ansi = supports_ansi() if ansi is None else ansi
+    subject = str(payload.get("question_text") or payload.get("subject") or "")
+    explanation = str(
+        payload.get("explanation") or payload.get("deliverables_overview") or ""
+    )
+    options = payload.get("options") or payload.get("proposal_summaries") or []
+    lines: list[str] = []
+    if subject:
+        lines.append(f"  {_bold(subject.strip(), use_ansi)}")
+    if explanation:
+        lines.append(f"    {explanation}")
+    for index, option in enumerate([str(item) for item in options], start=1):
+        head, tail = split_option(option)
+        suffix = f" —— {tail}" if tail else ""
+        lines.append(f"    {index}. {_bold(head, use_ansi)}{suffix}")
+    recommendation = str(payload.get("recommendation") or "").strip()
+    reason = str(payload.get("recommendation_reason") or "").strip()
+    if recommendation:
+        head, tail = split_option(recommendation)
+        suffix = f" —— {tail}" if tail else ""
+        lines.append(f"    推荐：{_bold(head, use_ansi)}{suffix}")
+        # 理由独立成行：推荐串自带说明时仍保留代码截断的 ≤20 字理由
+        if reason:
+            lines.append(f"    推荐理由：{reason}")
+    elif reason:
+        lines.append(f"    推荐理由：{reason}")
+    return lines
+
+
+def render_breakpoint_lines(
+    reason: str, payload: Mapping[str, Any], *, ansi: bool | None = None
+) -> list[str]:
+    """任意断点 → 终端行（REPL 与协议消息层共用的唯一分发点）。
+
+    question 走三层问题渲染；choice/build_way、choice/proposal、docs_done 走
+    决议渲染；其余（round / loop_exhausted / finished）逐字段平铺。
+    """
+    if reason == "question" and "question_text" in payload:
+        return render_question_payload(payload, ansi=ansi)
+    if reason in {"choice:build_way", "choice:proposal", "docs_done"}:
+        return render_choice_payload(payload, ansi=ansi)
+    return [f"  {key}: {value}" for key, value in payload.items()]
+
+
+__all__ = [
+    "render_breakpoint_lines",
+    "render_choice_payload",
+    "render_question_payload",
+    "split_option",
+    "supports_ansi",
+]
