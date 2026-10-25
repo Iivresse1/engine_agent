@@ -1353,7 +1353,13 @@ def make_check_node(
 
 
 def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。"""
+    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。
+
+    12：终检环计数入 scene（终检耗尽路径可见）；可重入——上轮已写
+    loop_exhausted 断点（check 节点 5 计时含失败明细版）则零改写保留。
+    """
+    if state.get("turn_end_reason") == TurnEndReason.LOOP_EXHAUSTED.value:
+        return {}  # 已写耗尽断点（12 check 版含失败明细）——保留不覆盖
     todos = state.get("todos") or []
     done = sum(
         1
@@ -1362,11 +1368,13 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
     )
     count = int(state.get("main_loop_count") or 0)
     demo_count = int(state.get("demo_loop_count") or 0)
+    final_check_count = int(state.get("final_check_loop_count") or 0)
     payload = validate_payload(
         TurnEndReason.LOOP_EXHAUSTED,
         {
             "scene": (
                 f"主环计数 {count}；demo 环计数 {demo_count}；"
+                f"终检环计数 {final_check_count}；"
                 f"todos {done}/{len(todos)} 完成"
             ),
             "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
