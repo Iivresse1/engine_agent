@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0005
-来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q67）
+来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q68）
 
 ## 版本志
 
@@ -17,7 +17,7 @@ Status: ready-for-agent
 | v1.6 | 2026-10-25 | question 与 choice:build_way payload +explanation；仪表盘 +teach_me_pref；ask 档指引询问真断点化（四选含 teach-me）——13 票 |
 | v1.7 | 2026-10-25 | 14 票问卷重编排：ask_tasks 瘦身为简报直写、指引一问归 guidance_trigger（发射/消费/user_mode 推导）、入口路由 +guidance_pref 行、首启改配置窗口、决策模式/技能包出问卷 |
 | v1.8 | 2026-10-25 | **真模型接线（Q64）**：配置格式定 .env、OpenAI 兼容客户端、运行时一站装配、本地账单实际落账、密钥防推送加固 |
-| v2.0 | 2026-10-25 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
+| v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
 
 ## Problem Statement
 
