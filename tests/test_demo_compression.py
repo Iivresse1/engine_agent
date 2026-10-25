@@ -51,7 +51,7 @@ def _app(main, cheap, tmp_path: Path):
 
 
 def test_demo_round_triggers_compression_hook(tmp_path):
-    main = ScriptedModel(["demo 已生成。"])
+    main = ScriptedModel(["demo 已生成。", "终稿报告。"])
     cheap = ScriptedModel(["demo 压缩摘要。"])
     app = _app(main, cheap, tmp_path)
     result = app.invoke(_demo_seed(), _cfg("demo-compress-1"))
@@ -65,17 +65,22 @@ def test_demo_round_triggers_compression_hook(tmp_path):
     assert main.calls[0]["messages"][1]["content"].startswith("【R1-R5-compact】")
     # 压缩键合并进 state（持续）
     assert list(map(tuple, result.get("compacted_rounds") or [])) == [(1, 5)]
-    assert result["turn_end_reason"] == "round"
+    # 12 改向：demo 轮后同轮接 FINALIZER（finalizer 产报告；way1 无交付物
+    # → 终检零语义调用直接 FINISHED）
+    assert main.calls[1]["role"] == "finalizer"
+    assert result["turn_end_reason"] == "finished"
 
 
 def test_demo_compression_reads_demo_messages_not_actor_messages(tmp_path):
     """挂点读 demo 私有历史：actor_messages 再长也不触发 demo 轮压缩。"""
-    main = ScriptedModel(["demo 已生成。"])
+    main = ScriptedModel(["demo 已生成。", "终稿报告。"])
     cheap = ScriptedModel(["不应调用"])
     app = _app(main, cheap, tmp_path)
     seed = _demo_seed()
     seed["demo_messages"] = [HumanMessage(content="短历史")]
     seed["actor_messages"] = _history(8, 1000)
-    app.invoke(seed, _cfg("demo-compress-2"))
+    result = app.invoke(seed, _cfg("demo-compress-2"))
     assert cheap.calls == []
-    assert "compacted_rounds" not in app.get_state(_cfg("demo-compress-2")).values
+    assert "compacted_rounds" not in result
+    # 12 改向：demo 轮后接 FINALIZER → CHECK（way1 零交付物→FINISHED）
+    assert result["turn_end_reason"] == "finished"

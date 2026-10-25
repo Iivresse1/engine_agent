@@ -121,14 +121,20 @@ def test_graph_entry_row7_reaches_docs_done_breakpoint():
 
 
 def test_graph_skip_resolution_ends_round_and_persists_skipped():
+    """12 改向：skipped 决议后同轮直通 FINALIZER→CHECK（原 END 边被替换）。
+
+    无 workspace_root（shared_docs=None）→ check 节点骨架通告（round 断点）
+    ——CLI 无工作区路径的既有行为零回归。
+    """
     app = build_graph(checkpointer=InMemorySaver())
     cfg = _cfg("g-docs-2")
     app.invoke(_base_state(), cfg)
     r = app.invoke({"resolution_inputs": ["跳过"]}, cfg)
     assert r["demo_phase"] == "skipped"
+    # 12：skipped → FINALIZER（model=None 骨架通告）→ CHECK（shared_docs
+    # 未接线 → 骨架通告 round 收轮）
     assert r["turn_end_reason"] == "round"
-    assert r["turn_end_payload"]["round_output"] == "已跳过 demo"
-    # 已决后再输入：docs_done 节点幂等零副作用（断点收轮，终检票 12 接管）
+    # 已决后再输入：docs_done 节点幂等零副作用；终检接管路由
     r2 = app.invoke({"resolution_inputs": ["跳过"]}, cfg)
     assert r2["demo_phase"] == "skipped"
     assert r2["turn_end_reason"] == "round"

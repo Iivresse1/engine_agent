@@ -107,12 +107,24 @@ def test_error_return_renders_round_breakpoint():
 
 
 def test_fifth_pasted_error_breaks_with_loop_exhausted(tmp_path):
-    """验收 5 端到端：真图 REPL 回放——第 5 次贴报错 → loop_exhausted 断点。"""
+    """验收 5 端到端：真图 REPL 回放——第 5 次贴报错 → loop_exhausted 断点。
+
+    12 改向：demo 轮后同轮接 FINALIZER→CHECK——终检缺件开新环（todos
+    重置）→ 下条普通输入先走主环工作轮（入口行 4 优先）→ 勾修复项后
+    再贴报错 → demo 环计数 5 → loop_exhausted。
+    """
     from langgraph.checkpoint.memory import InMemorySaver
 
     from project_agent.graph import build_graph
 
-    main = ScriptedModel(["第四轮修复", "第五轮前修复"])
+    main = ScriptedModel(
+        [
+            "第四轮修复",  # demo 轮（首次 invoke）
+            "终稿报告一。",  # finalizer（同轮接续）
+            "完成：梳理需求边界。完成：编写 README。完成：编写 TODO。完成：生成目录树",  # actor 勾全
+            "task_complete: true",  # verifier
+        ]
+    )
     app = build_graph(
         checkpointer=InMemorySaver(), model=main, workspace_root=tmp_path
     )

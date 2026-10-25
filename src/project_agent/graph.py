@@ -23,7 +23,9 @@ from project_agent.nodes import (
     make_assembler_node,
     make_actor_node,
     make_build_ways_node,
+    make_check_node,
     make_demo_agent_node,
+    make_finalizer_node,
     make_proposals_node,
     make_verifier_node,
     planner_node,
@@ -33,15 +35,18 @@ from project_agent.routing import (
     ACTOR,
     ASK_TASKS,
     BUILD_WAYS,
+    CHECK_PROPER_OUTPUT,
     CONTEXT_ASSEMBLER,
     DEMO_AGENT,
     DOCS_DONE,
     END_MAP,
+    FINALIZER,
     GUIDANCE_TRIGGER,
     LOOP_EXHAUSTED,
     PLANNER,
     PROPOSALS,
     VERIFIER,
+    _after_check,
     _after_demo,
     _after_docs_done,
     _after_verifier,
@@ -65,6 +70,7 @@ def build_graph(
     model: Any = None,
     workspace_root: Path | None = None,
     cheap_model: Any = None,
+    store: Any = None,
 ) -> Any:
     """workspace_root 非 None → SharedDocs(workspace_root) 同源注入
     assembler 与 actor 两工厂（09：assembler 读 notepad 切片/版本门，
@@ -75,7 +81,11 @@ def build_graph(
     08：cheap_model 非 None → actor/verifier/assembler 三节点包
     with_compression（Q54 模型调用前统一压缩检查；planner 无 LLM 调用
     不挂）；11 票补第四挂点 DEMO_AGENT（读 demo_messages 私有历史）。
-    None → 裸节点（基线零回归）。"""
+    None → 裸节点（基线零回归）。
+
+    12：store 非 None → 传 finalizer 工厂（final_report 入 Store 跨线程
+    长期记忆）；None → finalizer 零 Store 写（轻实现默认）。langgraph
+    Store 正式接入留接线票。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
@@ -129,6 +139,13 @@ def build_graph(
             messages_key="demo_messages",
         )
     graph.add_node(DEMO_AGENT, demo_node)
+    # 12：finalizer 收尾整理（final_report + Store 存取）+ check_proper_output
+    # 终检管线（run_final_check 双份交付）
+    graph.add_node(FINALIZER, make_finalizer_node(model, store=store, shared_docs=shared_docs))
+    graph.add_node(
+        CHECK_PROPER_OUTPUT,
+        make_check_node(model, shared_docs=shared_docs),
+    )
 
     graph.add_conditional_edges(START, route_from_start, END_MAP)
     graph.add_edge(ASK_TASKS, END)
@@ -140,17 +157,28 @@ def build_graph(
     )
     graph.add_edge(GUIDANCE_TRIGGER, END)
     graph.add_edge(PLANNER, END)
-    # 11：docs_done 三态出口——building 同轮接 DEMO_AGENT；skipped/未决收轮
+    # 11→12：docs_done 三态出口——building 同轮接 DEMO_AGENT；
+    # skipped/done → FINALIZER（12 改向：原 END 边被替换）；未决收轮
     graph.add_conditional_edges(
         DOCS_DONE,
         _after_docs_done,
-        {DEMO_AGENT: DEMO_AGENT, END: END},
+        {DEMO_AGENT: DEMO_AGENT, FINALIZER: FINALIZER, END: END},
     )
-    # 11：demo 出口——计数封顶优先，否则收轮（每轮一个修复回合）
+    # 11→12：demo 出口——计数封顶优先，否则接 FINALIZER（12 改向：
+    # 原 END 收轮边被替换——demo 完成后进终检）
     graph.add_conditional_edges(
         DEMO_AGENT,
         _after_demo,
-        {LOOP_EXHAUSTED: LOOP_EXHAUSTED, END: END},
+        {LOOP_EXHAUSTED: LOOP_EXHAUSTED, FINALIZER: FINALIZER},
+    )
+    # 12：终检链——FINALIZER→CHECK_PROPER_OUTPUT 顺序边；check 出口
+    # 三态（output_clean 真→END（finished 断点已写）；假且环计数<5→
+    # PLANNER（回环修复）；==5→LOOP_EXHAUSTED）
+    graph.add_edge(FINALIZER, CHECK_PROPER_OUTPUT)
+    graph.add_conditional_edges(
+        CHECK_PROPER_OUTPUT,
+        _after_check,
+        {END: END, PLANNER: PLANNER, LOOP_EXHAUSTED: LOOP_EXHAUSTED},
     )
     graph.add_edge(LOOP_EXHAUSTED, END)
     # 主环：assembler→actor→verifier→（计数/双过/未清/清而未过）→END|PLANNER|LOOP_EXHAUSTED
