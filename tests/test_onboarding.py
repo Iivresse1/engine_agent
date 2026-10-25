@@ -1,4 +1,4 @@
-"""首启问卷：QuestionSpec/QUESTIONNAIRE/解释引擎/guidance_mode_mapping（表驱动）。"""
+"""首启问卷（14 票重编排后仅存指引一题）：QuestionSpec/解释引擎/映射（表驱动）。"""
 
 from __future__ import annotations
 
@@ -16,134 +16,82 @@ from project_agent.onboarding import (
 )
 
 
-def test_questionnaire_has_four_specs_in_order():
-    assert [q.field for q in QUESTIONNAIRE] == [
-        "user_mode",
-        "guidance_pref",
-        "decision_mode",
-        "skill_packs",
-    ]
+def test_questionnaire_has_single_guidance_spec():
+    assert [q.field for q in QUESTIONNAIRE] == ["guidance_pref"]
 
 
 def test_option_texts_align_glossary_and_user_stories():
-    """选项文案对齐（13 票润色："标签 —— 说明"式；主体与旧版语义一致）。"""
+    """选项文案对齐（14 票重编排："标签 —— 说明"式；指引一问三态）。"""
     by_field = {q.field: q for q in QUESTIONNAIRE}
-    assert list(by_field["user_mode"].options) == [
-        "有编程经验 —— 看得懂代码，直接谈实现",
-        "编程新手 —— 需要逐步解释每一步在做什么",
-    ]
-    assert list(by_field["user_mode"].values) == ["experienced", "novice"]
     assert list(by_field["guidance_pref"].options) == [
-        "自动讲解 —— 每轮自动附带一段说明",
-        "每轮问我 —— 讲不讲由我当场决定",
-        "关闭 —— 不需要讲解",
+        "需要 —— 每轮自动附一段讲解",
+        "先问我 —— 讲不讲当场决定",
+        "不需要 —— 我自己看得懂",
     ]
     assert list(by_field["guidance_pref"].values) == ["auto", "ask", "off"]
-    assert list(by_field["decision_mode"].options) == [
-        "AI 自动审核 —— 常规自动通过，高风险才来问我",
-        "全部人工 —— 每个决策都先经我确认",
-    ]
-    assert list(by_field["decision_mode"].values) == ["ai_review", "manual"]
-    assert list(by_field["skill_packs"].options) == [
-        "启用默认包 —— 通用工作方法全量加载",
-        "暂不启用 —— 以后随时用 /skills 添加",
-    ]
-    assert list(by_field["skill_packs"].values) == [["default"], []]
 
 
-def test_next_unset_field_treats_empty_list_as_set():
-    """skill_packs=[] 是合法已设值（falsy 陷阱）。"""
-    assert next_unset_field({}) == "user_mode"
-    assert next_unset_field({"user_mode": "novice"}) == "guidance_pref"
-    assert next_unset_field({"skill_packs": None}) == "user_mode"
-    assert next_unset_field({"skill_packs": []}) == "user_mode"
-    assert (
-        next_unset_field(
-            {"user_mode": "experienced", "guidance_pref": "", "skill_packs": []}
-        )
-        == "guidance_pref"
-    )
-    assert (
-        next_unset_field(
-            {
-                "user_mode": "novice",
-                "guidance_pref": "auto",
-                "decision_mode": "manual",
-                "skill_packs": [],
-            }
-        )
-        is None
-    )
+def test_guidance_question_text_and_explanation():
+    spec = question_for("guidance_pref")
+    assert spec.question_text == "需要每轮给出指引帮助更好的理解项目吗 —— 构建时配讲解"
+    assert spec.explanation == "讲解会说明每轮为什么这么做、涉及哪些技术，边构建边学"
+
+
+def test_next_unset_field_treats_blank_as_unset():
+    assert next_unset_field({}) == "guidance_pref"
+    assert next_unset_field({"guidance_pref": None}) == "guidance_pref"
+    assert next_unset_field({"guidance_pref": ""}) == "guidance_pref"
+    assert next_unset_field({"guidance_pref": "auto"}) is None
+    assert next_unset_field({"guidance_pref": "off"}) is None
 
 
 @pytest.mark.parametrize(
-    ("field", "text", "expected"),
+    ("text", "expected"),
     [
         # 序号优先
-        ("user_mode", "1", "experienced"),
-        ("user_mode", " 2 ", "novice"),
-        ("guidance_pref", "3", "off"),
-        ("user_mode", "选 1", "experienced"),
-        ("user_mode", "选项2", "novice"),
-        ("user_mode", "第1种", "experienced"),
-        ("user_mode", "方式 2", "novice"),
-        # 关键词（Q1 novice 词在前防"零基础"含"基础"误判）
-        ("user_mode", "我不了解编程", "novice"),
-        ("user_mode", "零基础", "novice"),
-        ("user_mode", "新手小白", "novice"),
-        ("user_mode", "有一定编程基础", "experienced"),
-        ("user_mode", "有编程经验", "experienced"),
-        ("user_mode", "程序员", "experienced"),
-        ("guidance_pref", "自动每轮", "auto"),
-        ("guidance_pref", "自动", "auto"),
-        ("guidance_pref", "每轮询问", "ask"),
-        ("guidance_pref", "问我", "ask"),
-        ("guidance_pref", "关", "off"),
-        # 13 票长选项原文应可解释
-        ("user_mode", "看得懂代码，直接谈实现", "experienced"),
-        ("user_mode", "需要逐步解释每一步在做什么", "novice"),
-        ("guidance_pref", "讲不讲由我当场决定", "ask"),
-        ("guidance_pref", "不需要讲解", "off"),
-        ("decision_mode", "每个决策都先经我确认", "manual"),
-        ("skill_packs", "以后随时用 /skills 添加", []),
-        ("decision_mode", "AI 自动审核", "ai_review"),
-        ("decision_mode", "自动审核", "ai_review"),
-        ("decision_mode", "全权人工", "manual"),
-        ("decision_mode", "人工", "manual"),
-        ("decision_mode", "我自己来", "manual"),
-        # Q4 "暂不/不启用" 在 "启用" 前
-        ("skill_packs", "默认技能包", ["default"]),
-        ("skill_packs", "默认", ["default"]),
-        ("skill_packs", "暂不启用", []),
-        ("skill_packs", "不启用", []),
-        ("skill_packs", "不要", []),
+        ("1", "auto"),
+        (" 2 ", "ask"),
+        ("3", "off"),
+        ("选 1", "auto"),
+        ("选项2", "ask"),
+        ("第3种", "off"),
+        ("方式 2", "ask"),
+        # 关键词
+        ("需要", "auto"),
+        ("需要每轮讲解", "auto"),
+        ("自动", "auto"),
+        ("先问", "ask"),
+        ("问我", "ask"),
+        ("询问", "ask"),
+        ("当场决定", "ask"),
+        ("不用", "off"),
+        ("看得懂", "off"),
+        ("关", "off"),
+        # 否定词在前（前缀防误吞）："不需要"→off（与 skill_packs 同法）
+        ("不需要", "off"),
+        # 14 票长选项原文应可解释
+        ("每轮自动附一段讲解", "auto"),
+        ("讲不讲当场决定", "ask"),
+        ("我自己看得懂", "off"),
         # 解释不了
-        ("user_mode", "做个 2048 游戏", None),
-        ("user_mode", "随便说", None),
-        ("guidance_pref", "嗯", None),
-        ("skill_packs", "呃", None),
+        ("做个 2048 游戏", None),
+        ("随便说", None),
+        ("嗯", None),
     ],
 )
-def test_interpret_answer(field, text, expected):
-    spec = question_for(field)
-    assert spec.field == field
+def test_interpret_answer(text, expected):
+    spec = question_for("guidance_pref")
+    assert spec.field == "guidance_pref"
     assert interpret_answer(spec, text) == expected
 
 
 def test_interpret_answer_none_for_blank():
-    assert interpret_answer(question_for("user_mode"), "") is None
-    assert interpret_answer(question_for("user_mode"), None) is None
-
-
-def test_interpret_answer_returns_empty_list_legally():
-    """interpret_answer 返回 [] 是合法已设值——判 None 不得用 truthy。"""
-    result = interpret_answer(question_for("skill_packs"), "暂不启用")
-    assert result is not None
-    assert result == []
+    assert interpret_answer(question_for("guidance_pref"), "") is None
+    assert interpret_answer(question_for("guidance_pref"), None) is None
 
 
 def test_novice_hint_appended_for_novice():
-    """user_mode==novice 时 Q2 追加"；新手推荐 1"。"""
+    """novice_hint 字段仍可替换（dataclasses.replace 通道）。"""
     base = question_for("guidance_pref")
     hinted = dataclasses.replace(base, novice_hint="；新手推荐 1")
     assert hinted.novice_hint == "；新手推荐 1"

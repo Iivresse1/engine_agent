@@ -44,7 +44,7 @@ def _resolve(state: dict, text: str) -> dict:
 def test_entry_route_way4_without_selected_proposal_and_todos_to_proposals():
     """行序（行 3 前）：way4+selected_proposal 未设+todos 未设 → PROPOSALS。"""
     assert (
-        entry_route({"task_brief": "x", "build_way": "way4", "todos": []}) == PROPOSALS
+        entry_route({"task_brief": "x", "build_way": "way4", "guidance_pref": "auto", "todos": []}) == PROPOSALS
     )
 
 
@@ -52,7 +52,7 @@ def test_entry_route_way4_with_selected_proposal_falls_to_planner():
     """selected_proposal 已设 → 落到行 3 照旧（todos 空→PLANNER）。"""
     assert (
         entry_route(
-            {"task_brief": "x", "build_way": "way4", "selected_proposal": 0, "todos": []}
+            {"task_brief": "x", "build_way": "way4", "guidance_pref": "auto", "selected_proposal": 0, "todos": []}
         )
         == "planner"
     )
@@ -61,7 +61,7 @@ def test_entry_route_way4_with_selected_proposal_falls_to_planner():
 def test_entry_route_non_way4_skips_proposals():
     """非 way4（way1/2/3）：不命中 PROPOSALS 行——todos 空→PLANNER 照旧。"""
     for way in ("way1", "way2", "way3"):
-        assert entry_route({"task_brief": "x", "build_way": way, "todos": []}) == "planner"
+        assert entry_route({"task_brief": "x", "build_way": way, "guidance_pref": "auto", "todos": []}) == "planner"
 
 
 def test_entry_route_way4_todos_set_not_proposals():
@@ -71,6 +71,7 @@ def test_entry_route_way4_todos_set_not_proposals():
             {
                 "task_brief": "x",
                 "build_way": "way4",
+                "guidance_pref": "auto",
                 "todos": [{"content": "t", "status": "pending"}],
             }
         )
@@ -79,15 +80,18 @@ def test_entry_route_way4_todos_set_not_proposals():
 
 
 def test_entry_truth_table_contains_proposals_row():
-    """ENTRY_TRUTH_TABLE 加行：way4 未选方案 → PROPOSALS。"""
+    """ENTRY_TRUTH_TABLE 加行：way4 未选方案（14 票起需 guidance_pref 已设）→ PROPOSALS。"""
     rows = [(dashboard, target) for dashboard, target in ENTRY_TRUTH_TABLE]
-    assert ({"task_brief": "x", "build_way": "way4"}, PROPOSALS) in rows
+    assert (
+        {"task_brief": "x", "build_way": "way4", "guidance_pref": "auto"},
+        PROPOSALS,
+    ) in rows
 
 
 def test_entry_route_priority_proposals_before_planner():
     """优先级：PROPOSALS 行在 todos 判定之前（way4 未选时 todos 空不落 planner）。"""
     assert (
-        entry_route({"task_brief": "x", "build_way": "way4", "todos": []}) != "planner"
+        entry_route({"task_brief": "x", "build_way": "way4", "guidance_pref": "auto", "todos": []}) != "planner"
     )
 
 
@@ -311,6 +315,7 @@ def test_graph_proposals_keyword_fusion_flow():
     seed = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "auto",
         "todos": [],
         "actor_messages": [HumanMessage(content="开始")],
     }
@@ -328,6 +333,7 @@ def test_graph_proposals_uninterpretable_reshows():
     seed = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "auto",
         "todos": [],
         "actor_messages": [HumanMessage(content="开始")],
     }
@@ -351,6 +357,7 @@ def test_graph_proposals_model_none_static_fallback_flow():
     seed = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "auto",
         "todos": [],
         "actor_messages": [HumanMessage(content="开始")],
     }
@@ -372,6 +379,7 @@ def test_graph_selected_proposal_set_routes_to_planner():
     seed = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "auto",
         "todos": [],
         "actor_messages": [HumanMessage(content="开始")],
     }

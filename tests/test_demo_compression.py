@@ -34,6 +34,7 @@ def _demo_seed() -> dict:
     return {
         "task_brief": "想法",
         "build_way": "way1",
+        "guidance_pref": "off",
         "todos": DONE_TODOS,
         "task_complete": True,
         "demo_phase": "building",

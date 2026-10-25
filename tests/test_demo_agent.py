@@ -33,6 +33,7 @@ DONE_TODOS = [{"content": "写 README", "status": "completed"}]
 DEMO_STATE = {
     "task_brief": "做个记账 CLI",
     "build_way": "way3",
+    "guidance_pref": "auto",
     "todos": DONE_TODOS,
     "task_complete": True,
     "demo_phase": "building",
@@ -244,6 +245,7 @@ def test_graph_docs_done_build_resolution_hands_to_demo_same_round(tmp_path):
         {
             "task_brief": "做个记账 CLI",
             "build_way": "way3",
+            "guidance_pref": "auto",
             "todos": DONE_TODOS,
             "task_complete": True,
             "actor_messages": [HumanMessage(content="开始")],

@@ -8,7 +8,7 @@ demo_loop_count++，其余输入走既有 fusion_update 原路径。
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from langchain_core.messages import HumanMessage
 
@@ -21,6 +21,7 @@ from project_agent.protocol import RoundEndReason
 from project_agent.rendering import render_question_payload
 
 _BANNER = "Project Agent。输入 /help 查看命令。"
+_OPENING_PROMPT = "今天要做什么呢？"  # 14 票：开场提示语——首条自由文本即图输入
 _FAREWELL = "再见"
 _TERMINAL_NOTICE = "构建已完成（终态）。输入 /exit 退出。"
 _COMPACT_NOT_ENABLED = "压缩未启用（需 --cheap-model 接线）"
@@ -68,6 +69,7 @@ class ReplHost:
         shared_docs: Any = None,
         error_classifier: Any = None,
         ask_bypass: AskBypass | None = None,
+        initial_dashboard: Mapping[str, Any] | None = None,
     ) -> None:
         self._app = app
         self._io = io
@@ -78,6 +80,9 @@ class ReplHost:
         self._ask_bypass = ask_bypass
         # 11：窄分类兜底模型（ModelClient 形态；None → 层 3 默认 normal）
         self._error_classifier = error_classifier
+        # 14 票：首条输入随行种入仪表盘（decision_mode 来自配置窗口、
+        # skill_packs 默认包）——仅 state 无值的键生效；续跑会话跳过
+        self._initial_dashboard: dict[str, Any] = dict(initial_dashboard or {})
         # /compact 产生的待并压缩批：下轮 invoke 携带进图（经 add_messages
         # reducer 归约——否则 checkpointer 里的历史永远未压）
         self._pending_compression: dict[str, Any] | None = None
@@ -85,6 +90,8 @@ class ReplHost:
     def run(self) -> None:
         self._seed_state_from_checkpoint()
         self._io.write_line(_BANNER)
+        self._io.write_line("")
+        self._io.write_line(_OPENING_PROMPT)
         while True:
             line = self._io.read_line()
             if line is None:  # EOF
@@ -265,6 +272,12 @@ class ReplHost:
             # FINISHED 终态（01 欠账 b）：不再融合不再 invoke
             self._io.write_line(_TERMINAL_NOTICE)
             return
+        # 14 票：首条输入随行种入（仅 state 无值的键；一次性）
+        if self._initial_dashboard and not self._last_state:
+            for key, value in self._initial_dashboard.items():
+                if not self._last_state.get(key):
+                    update.setdefault(key, value)
+            self._initial_dashboard = {}
         if self._pending_compression is not None:
             # 待并压缩批先行：头部单包/RemoveMessage 与新输入一起进图，
             # add_messages reducer 归约出压缩后历史（一次性，随后清空）

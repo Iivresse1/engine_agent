@@ -209,6 +209,7 @@ def test_graph_level_provenance_survives_compression(tmp_path: Path):
     seed = {
         "task_brief": "想法",
         "build_way": "way1",
+        "guidance_pref": "off",
         "todos": [{"content": "梳理需求边界", "status": "pending"}],
         "assembled_context": {"system": "你是构建 agent。", "todo_board": [], "scope": "main"},
         "actor_messages": _history(10, 900),

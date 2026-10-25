@@ -27,6 +27,7 @@ REPORT = "项目完成：三份文档齐备。经验教训：先对齐范围再�
 SEED = {
     "task_brief": "做个记账 CLI",
     "build_way": "way3",
+    "guidance_pref": "auto",
     "todos": DONE_TODOS,
     "task_complete": True,
     "is_docs_finished": True,
@@ -137,6 +138,7 @@ def test_entry_row8_docs_finished_skipped_routes_to_finalizer():
     dashboard = {
         "task_brief": "x",
         "build_way": "way1",
+        "guidance_pref": "auto",
         "todos": [{"content": "a", "status": "completed"}],
         "task_complete": True,
         "is_docs_finished": True,
@@ -150,6 +152,7 @@ def test_entry_row8_not_triggered_when_demo_building():
     dashboard = {
         "task_brief": "x",
         "build_way": "way1",
+        "guidance_pref": "auto",
         "todos": [{"content": "a", "status": "completed"}],
         "task_complete": True,
         "demo_phase": "building",
@@ -161,6 +164,7 @@ def test_entry_row8_not_triggered_without_docs_finished():
     dashboard = {
         "task_brief": "x",
         "build_way": "way1",
+        "guidance_pref": "auto",
         "todos": [{"content": "a", "status": "completed"}],
         "task_complete": True,
         "demo_phase": "skipped",
@@ -227,6 +231,7 @@ def test_graph_demo_agent_edges_to_finalizer_after_demo(tmp_path):
         {
             "task_brief": "做个记账 CLI",
             "build_way": "way3",
+            "guidance_pref": "auto",
             "todos": DONE_TODOS,
             "task_complete": True,
             "actor_messages": [HumanMessage(content="开始")],
@@ -253,6 +258,7 @@ def test_graph_docs_done_skipped_edges_to_finalizer(tmp_path):
         {
             "task_brief": "做个记账 CLI",
             "build_way": "way3",
+            "guidance_pref": "auto",
             "todos": DONE_TODOS,
             "task_complete": True,
             "actor_messages": [HumanMessage(content="开始")],

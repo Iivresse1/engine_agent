@@ -139,6 +139,7 @@ def test_graph_way2_grilling_replay(tmp_path):
     seed = {
         "task_brief": "做个备忘工具",
         "build_way": "way2",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": todos,
         "actor_messages": [HumanMessage(content="开始")],
@@ -179,6 +180,7 @@ def test_graph_way3_grilling_replay():
     seed = {
         "task_brief": "x",
         "build_way": "way3",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "todos": todos,
         "actor_messages": [HumanMessage(content="继续")],
@@ -210,6 +212,7 @@ def test_graph_way4_grilling_replay_body_selected():
     seed = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "off",
         "guidance_mode": "off",
         "selected_proposal": 0,
         "todos": WAY4_PENDING,
@@ -228,6 +231,7 @@ def test_entry_route_way4_with_todos_set_goes_to_assembler():
             {
                 "task_brief": "x",
                 "build_way": "way4",
+                "guidance_pref": "auto",
                 "selected_proposal": 1,
                 "todos": WAY4_PENDING,
             }

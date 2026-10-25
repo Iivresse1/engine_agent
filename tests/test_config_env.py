@@ -36,7 +36,27 @@ def test_render_env_roundtrip():
         "api_key": "sk-x",
         "base_url": "b",
         "sub_model": "s",
+        "decision_mode": "ai_review",  # 14 票新增字段（默认值也落盘）
     }
+
+
+def test_render_env_includes_manual_decision_mode():
+    config = AppConfig(
+        main_model="deepseek-chat", api_key="sk-x", decision_mode="manual"
+    )
+    assert parse_env(render_env(config))["decision_mode"] == "manual"
+
+
+def test_store_load_invalid_decision_mode_defaults_to_ai_review(tmp_path):
+    """受控归一：非法 decision_mode → ai_review（14 票默认）。"""
+    path = tmp_path / "config.env"
+    path.write_text(
+        "main_model=deepseek-chat\napi_key=sk-x\ndecision_mode=banana\n",
+        encoding="utf-8",
+    )
+    assert ConfigStore(path).load() == AppConfig(
+        main_model="deepseek-chat", api_key="sk-x", decision_mode="ai_review"
+    )
 
 
 def test_store_save_load_roundtrip(tmp_path):

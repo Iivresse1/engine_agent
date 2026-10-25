@@ -1,7 +1,7 @@
 # Spec: 项目构建 Agent（Project Agent）v1.2
 
 Status: ready-for-agent
-发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）；v1.3 增补（2026-10-25）：仪表盘字段表补录 round_count（06 票【R#】编号源）；v1.4 增补（2026-10-25）：仪表盘字段表补录 compacted_rounds（08 票压缩溯源）；v1.6 增补（2026-10-25）：断点协议 question/choice:build_way 行 +explanation（13 票文案可读性）、仪表盘 +teach_me_pref、ask 档指引询问真断点化（四选含 teach-me 深度教学——用户裁定）
+发布: 2026-10-24（v1）；v1.1 增补：图状态契约 / 断点协议 / 测试与主项目分隔（同日）；v1.2 增补（2026-10-25）：仪表盘字段表补录 02 票问卷四字段 + 私有 key 表补录决议输入通道（02 票实现落地后由 Lead 回填）；v1.3 增补（2026-10-25）：仪表盘字段表补录 round_count（06 票【R#】编号源）；v1.4 增补（2026-10-25）：仪表盘字段表补录 compacted_rounds（08 票压缩溯源）；v1.6 增补（2026-10-25）：断点协议 question/choice:build_way 行 +explanation（13 票文案可读性）、仪表盘 +teach_me_pref、ask 档指引询问真断点化（四选含 teach-me 深度教学——用户裁定）；v1.7 增补（2026-10-25）：14 票问卷重编排——ask_tasks 瘦身（简报直写零 question）、指引一问归 guidance_trigger（发射/消费/user_mode 推导）、入口路由 +guidance_pref 行、首启两层改 GUI 窗口+终端 fallback、决策模式/技能包出问卷（配置窗口/种子注入）
 来源: 32 轮 grilling 设计会话（决策台账 .scratch/project-agent/decisions.md，47+ 决策）
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0004
 
@@ -173,9 +173,9 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | 节点 | 读 | 写 |
 |---|---|---|
 | 入口路由器 | 全仪表盘 | 无（纯代码路由） |
-| ask_tasks | — | task_brief；question 断点 |
-| build_ways | task_brief、新手配置 | choice 断点 payload；决议轮写 build_way |
-| guidance_trigger | build_way、新手配置 | guidance_mode（纯配置映射） |
+| ask_tasks | 首条人类消息 | task_brief 一次写定 + round（14 票瘦身：四问循环删除，指引一问归 guidance_trigger） |
+| build_ways | task_brief | choice 断点 payload；决议轮写 build_way |
+| guidance_trigger | build_way、guidance_pref、上轮 question 答案 | guidance_mode 映射；14 票：指引未答发 question 断点（指引一问），答案轮写 guidance_pref + user_mode 推导（auto/ask→novice、off→experienced）+ round |
 | 8 配置条件边 | build_way × guidance_mode | 无——Actor 工厂参数每轮派生，不持久化 |
 | 三方案并行 | 主线 grilling 历史 | proposal_set、choice 断点；选定轮写 selected_proposal |
 | planner | task_brief、build_way/selected_proposal、交付物集定义 | todos（全 pending）、主环计数清零 |
@@ -192,6 +192,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 |---|---|
 | task_brief 未设 | ask_tasks |
 | build_way 未设 | build_ways 决议 |
+| guidance_pref 未设（None/""；off 为合法已设） | guidance_trigger（14 票新行：指引一问/答案消费） |
 | way4 且 selected_proposal 未设 | 方案选定 |
 | todos 为空 | planner |
 | is_docs_finished=false 且 todos 未清 | context_assembler（主环） |
@@ -235,7 +236,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 ### 路由
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）
-- **首启两层**：应用级（模型/API）与项目级（模式/指引/决策模式/技能包，首次进工作流时问）
+- **首启两层**：应用级（模型/API/决策模式——14 票起 tkinter 配置窗口，终端问卷 fallback）与项目级（build_ways 决议后指引一问；user_mode 由指引答案推导、decision_mode 在配置窗口、skill_packs 默认 default 包种子注入）
 
 ### 模型与版本
 

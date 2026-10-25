@@ -234,6 +234,16 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **teach-me 历史考据修正**：claude-code-best 仓的 teach-me/ 目录实测为 markdown 笔记（learner-profile/session/notes），HTML 之说来自社区 codebase-to-course 先例；产物 HTML 形态为用户裁定。无 License 仓只学模式不抄码。
 - 实现细节：+43 测试（821→839）；teach_me.py/rendering.py 新模块；spec v1.6 回填（question/choice:build_way +explanation、仪表盘 +teach_me_pref）。
 
+**Q67（14 票 UX-1 壳票，2026-10-25 深夜，854 绿零警告）**：
+- **engine 命令落地**（Q65 裁定）：pyproject scripts 只留 engine（旧名 project-agent 废弃）；`--state` 默认改每项目 `<cwd>/.project-agent/state.db`（config 仍全局 `~/.project-agent/config.env`——一次配置任何目录可用，换目录即新会话）。
+- **问卷重编排**（Q65 裁定落定）：①"今天要做什么呢？"= REPL 开场提示语（banner 后空行+一行；首条自由文本即图输入——零架构改动）②build_ways ③指引一问挪至 build_ways 决议后。**四问删到一问**：user_mode 由指引答案推导（auto/ask→novice、off→experienced）；decision_mode → 配置窗口（默认 ai_review）；skill_packs → REPL 种子注入默认 ["default"]（首条输入随行、仅无值键生效）。ask_tasks_node 瘦身为"简报直写零 question"；guidance_trigger_node 改造为指引一问的发射/消费/映射三态。
+- **tkinter 配置窗口**（gui_config.py 新模块）：主模型/key（mask）/base_url/子模型/决策模式开关（默认开）+ **测试连接按钮**（httpx 1-token ping POST {base}/chat/completions，2xx 即通；不阻塞保存）；分层可测——纯函数层（form_fields_to_config/test_connection MockTransport 注入）12 测试零 GUI；tkinter 壳全异常兜底返 None → cli 退终端问卷 fallback（问卷第五问：决策模式，回车默认 ai_review）。
+- **AppConfig +decision_mode**（"ai_review"|"manual"，受控归一）；.env +decision_mode 键（旧文件缺省 → ai_review 向后兼容）。
+- **入口路由新行**：task_brief+build_way 已设且 guidance_pref 未设（None/""——**off 是合法已设值，falsy 陷阱两处修正**：entry_route 与 guidance_trigger_node 的"已设"判定都不得用 truthy）→ GUIDANCE_TRIGGER。END_MAP 补 guidance_trigger 键（START 条件边映射缺失会 KeyError——图级测试抓出）。真值表全部后续行样例补 guidance_pref 已设。
+- **keyword 否定优先序**："不需要"含"需要"误判 auto——off 词表前置（skill_packs 同法第三例，falsy/子串双陷阱家族）。
+- 测试：+18 新测试（gui_config 12 + restructured_flow 6；随四问删除 839→854）；旧测试 128 例批量适配（子代理按五规则分派：KeyError 补种子/旧问卷断言改简报断言/guidance_trigger 三态改写/路由行补字段/config 序列补应答）。spec v1.7 回填（节点读写表/路由真值表/首启两层节）。
+- **Q39 红线精化**：gui_config 的 httpx 改惰性导入（`_httpx()` 函数内），兜底扫描豁免该模块（用户主动测试连接非上报路径），并新增"顶层 import httpx 即倒退"哨兵测试（红线从"禁网络库"精化为"禁自动上报 + 禁顶层加载"）。
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）

@@ -1,7 +1,7 @@
 """主接缝回放：invoke(融合更新) → 轮终 state；断点续跑零真模型。
 
-02 起 build_ways 走 choice:build_way 断点 + 决议通道（resolution_inputs），
-回放输入按 fusion_update 语义构造（无 reducer 整覆写：[*existing, text]）。
+14 票重编排：首条自由文本→简报写定；指引一问在 build_ways 决议后
+（guidance_trigger 节点发射与消费）。
 """
 
 from __future__ import annotations
@@ -33,22 +33,11 @@ def test_three_round_breakpoint_replay():
     saver = InMemorySaver()
     app = build_graph(checkpointer=saver)
 
-    # 首启问卷：问答四轮
+    # 14 票：首条自由文本 → 简报写定 + round 收轮
     r1 = app.invoke(_say("我想做一个记账 CLI"), _cfg())
-    assert r1["turn_end_reason"] == "question"  # Q1
-    assert r1["turn_end_payload"]["question_text"] == "你的编程基础 —— 决定 agent 用多大深度和你沟通"
-    assert "task_brief" not in r1  # 首轮想法绝不被当答案
-    r2 = app.invoke(_say("有一定编程基础"), _cfg())
-    assert r2["user_mode"] == "experienced"
-    assert r2["turn_end_reason"] == "question"  # Q2
-    r3 = app.invoke(_say("自动每轮"), _cfg())
-    assert r3["guidance_pref"] == "auto"
-    r4 = app.invoke(_say("AI 自动审核"), _cfg())
-    assert r4["decision_mode"] == "ai_review"
-    r5 = app.invoke(_say("默认技能包"), _cfg())
-    assert r5["skill_packs"] == ["default"]
-    assert r5["task_brief"] == "我想做一个记账 CLI"  # 从首条人类消息写定
-    assert r5["turn_end_reason"] == "round"
+    assert r1["task_brief"] == "我想做一个记账 CLI"
+    assert r1["turn_end_reason"] == "round"
+    assert "任务简报已记录：我想做一个记账 CLI" in r1["turn_end_payload"]["round_output"]
 
     r6 = app.invoke(_say("无关键词闲聊"), _cfg())
     assert r6["turn_end_reason"] == "choice:build_way"  # 首入 build_ways：发 choice 断点
@@ -59,24 +48,31 @@ def test_three_round_breakpoint_replay():
         "完整文档 —— 完整规格/ADR/术语表，适合长期维护",
     ]
 
+    # 决议 → build_way 写定 → 同轮指引一问（14 票）
     r7 = app.invoke(_resolve(r6, "用完整文档"), _cfg())
     assert r7["build_way"] == "way4"
     assert r7["task_brief"] == "我想做一个记账 CLI"  # 断点续跑：状态延续
-    assert r7["turn_end_reason"] == "round"
+    assert r7["turn_end_reason"] == "question"
     assert r7["resolution_inputs"] == []  # 决议后通道清空
+
+    # 指引答案 → 落盘 + round 收轮
+    r8 = app.invoke(_say("需要"), _cfg())
+    assert r8["guidance_pref"] == "auto"
+    assert r8["user_mode"] == "novice"  # auto → novice 推导
+    assert r8["guidance_mode"] == "auto"
+    assert r8["turn_end_reason"] == "round"
+    assert "指引偏好已记录" in r8["turn_end_payload"]["round_output"]
 
 
 def test_state_restored_across_app_instances():
     """END 后同 thread 再 invoke：从 START 重跑且 state 恢复（版本敏感行为实测）。"""
     saver = InMemorySaver()
     app1 = build_graph(checkpointer=saver)
-    answers = ["我不了解编程", "自动每轮", "全权人工", "暂不启用"]
     state = app1.invoke(_say("原始想法"), _cfg())
-    for text in answers:
-        state = app1.invoke(_say(text), _cfg())
     assert state["task_brief"] == "原始想法"
     r_choice = app1.invoke(_say("轻方式"), _cfg())
     app1.invoke(_resolve(r_choice, "轻"), _cfg())
+    app1.invoke(_say("需要"), _cfg())  # 指引答案
 
     app2 = build_graph(checkpointer=saver)
     r = app2.invoke(_say("继续"), _cfg())
@@ -86,9 +82,9 @@ def test_state_restored_across_app_instances():
 
 
 def test_full_onboarding_to_completion_replay():
-    """大回放：idea→四问→简报→choice→决议→guidance→planner，逐轮断言。
+    """大回放：idea→简报→choice→决议→指引问→答案→planner，逐轮断言。
 
-    - 四问仅首次（后续轮零 question reason——choice 之后不再有问卷）
+    - 指引一问仅一次（决议后）；答案落盘三字段
     - task_brief 恒定（写定后不被后续轮改写）
     - model 恰一次调用（choice 推荐；决议重发复用不重调）
     - 决议后通道清空
@@ -100,22 +96,9 @@ def test_full_onboarding_to_completion_replay():
     app = build_graph(checkpointer=saver, model=model)
     cfg = _cfg("full")
 
-    # 首轮：idea → Q1
+    # 首轮：idea → 简报写定 + round 收轮（14 票）
     r = app.invoke(_say("我想做个记账 CLI"), cfg)
-    assert r["turn_end_reason"] == "question"
-    assert "task_brief" not in r
-
-    # 四问逐轮：答案解释落盘
-    r = app.invoke(_say("我不了解编程"), cfg)
-    assert r["user_mode"] == "novice"
-    assert "新手推荐选 1" in r["turn_end_payload"]["question_text"]  # Q2 带 hint
-    r = app.invoke(_say("自动每轮"), cfg)
-    assert r["guidance_pref"] == "auto"
-    r = app.invoke(_say("AI 自动审核"), cfg)
-    assert r["decision_mode"] == "ai_review"
-    r = app.invoke(_say("默认技能包"), cfg)
-    assert r["skill_packs"] == ["default"]
-    assert r["task_brief"] == "我想做个记账 CLI"  # 从首条人类消息写定
+    assert r["task_brief"] == "我想做个记账 CLI"
     assert r["turn_end_reason"] == "round"
     brief = r["task_brief"]
 
@@ -129,15 +112,23 @@ def test_full_onboarding_to_completion_replay():
     )
     assert r_choice["turn_end_payload"]["recommendation_reason"] == "简化起步快"
 
-    # 决议：序号解释
+    # 决议：序号解释 → 同轮指引一问
     r = app.invoke(_resolve(r_choice, "1"), cfg)
     assert r["build_way"] == "way1"
     assert r["resolution_inputs"] == []
-    assert r["guidance_mode"] == "off"  # way1 纯对话→off
+    assert r["turn_end_reason"] == "question"
     assert r["task_brief"] == brief  # 恒定
     assert len(model.calls) == 1  # 决议不重调 model
 
-    # 后续轮：零 question reason（四问仅首次）——05：todos 空→planner 出计划
+    # 指引答案：落盘三字段 + round 收轮
+    r = app.invoke(_say("1"), cfg)  # 序号 1 → auto
+    assert r["guidance_pref"] == "auto"
+    assert r["user_mode"] == "novice"
+    assert r["guidance_mode"] == "off"  # way1 纯对话→off
+    assert r["turn_end_reason"] == "round"
+    assert r["task_brief"] == brief
+
+    # 后续轮：零 question reason（指引一问仅一次）——05：todos 空→planner 出计划
     r = app.invoke(_say("继续"), cfg)
     assert r["turn_end_reason"] == "round"
     assert "已列出" in r["turn_end_payload"]["round_output"]
@@ -156,8 +147,6 @@ def test_guidance_mode_persists_across_app_instances():
             "task_brief": "想法",
             "user_mode": "novice",
             "guidance_pref": "auto",
-            "decision_mode": "manual",
-            "skill_packs": [],
             "resolution_inputs": ["3"],
         },
         cfg,
@@ -171,17 +160,13 @@ def test_guidance_mode_persists_across_app_instances():
 
 
 def test_questionnaire_seeded_input_fast_forwards_to_build_ways():
-    """seed 问卷字段直接入 invoke 输入：可快进到 build_ways 相位（01 遗留直达）。"""
+    """seed 仪表盘字段直接入 invoke 输入：可快进到 build_ways 相位（01 遗留直达）。"""
     saver = InMemorySaver()
     app = build_graph(checkpointer=saver)
     cfg = _cfg("seed")
     r = app.invoke(
         {
             "task_brief": "已有简报",
-            "user_mode": "experienced",
-            "guidance_pref": "ask",
-            "decision_mode": "manual",
-            "skill_packs": [],
             "resolution_inputs": [],
         },
         cfg,
@@ -208,10 +193,7 @@ def test_uninterpretable_resolution_reshows_choice_not_stale():
     model = ScriptedModel(["way3|理由"])  # 仅首次 choice 触模型
     app = build_graph(checkpointer=saver, model=model)
 
-    answers = ["我不了解编程", "自动每轮", "全权人工", "暂不启用"]
     state = app.invoke(_say("我想做记账 CLI"), _cfg())
-    for text in answers:
-        state = app.invoke(_say(text), _cfg())
     r_choice = app.invoke(_say("嗯"), _cfg())
     assert len(model.calls) == 1
     r2 = app.invoke(_resolve(r_choice, "随便说什么都不含关键词"), _cfg())
@@ -228,10 +210,6 @@ def test_round_payload_carries_todo_board():
 
     state = {
         "actor_messages": [HumanMessage("新任务")],
-        "user_mode": "novice",
-        "guidance_pref": "auto",
-        "decision_mode": "manual",
-        "skill_packs": [],
         "todos": [
             {"content": "搭骨架", "status": "completed"},
             {"content": "写文档", "status": "in_progress"},
@@ -251,8 +229,6 @@ def test_breakpoint_persists_across_processes(tmp_path):
     with sqlite_checkpointer(db) as checkpointer:
         app = build_graph(checkpointer=checkpointer)
         state = app.invoke(_say("我想做一个记账 CLI"), _cfg("persist-t"))
-        for text in ["我不了解编程", "自动每轮", "全权人工", "暂不启用"]:
-            state = app.invoke(_say(text), _cfg("persist-t"))
         assert state["task_brief"] == "我想做一个记账 CLI"
         r_choice = app.invoke(_say("下一步"), _cfg("persist-t"))
         assert r_choice["turn_end_reason"] == "choice:build_way"
@@ -263,3 +239,7 @@ def test_breakpoint_persists_across_processes(tmp_path):
         r2 = app2.invoke(_resolve(r_choice, "简化文档"), _cfg("persist-t"))
         assert r2["task_brief"] == "我想做一个记账 CLI"
         assert r2["build_way"] == "way3"
+        assert r2["turn_end_reason"] == "question"  # 决议同轮指引一问
+        r3 = app2.invoke(_say("不需要"), _cfg("persist-t"))
+        assert r3["guidance_pref"] == "off"
+        assert r3["guidance_mode"] == "off"

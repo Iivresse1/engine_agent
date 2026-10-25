@@ -50,6 +50,7 @@ def _seed() -> dict:
     return {
         "task_brief": "想法",
         "build_way": "way1",
+        "guidance_pref": "off",
         "todos": TWO_PENDING,
         "actor_messages": [HumanMessage(content="开始")],
     }

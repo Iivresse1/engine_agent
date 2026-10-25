@@ -41,6 +41,7 @@ def _seed_long_history() -> dict:
     return {
         "task_brief": "想法",
         "build_way": "way1",
+        "guidance_pref": "off",
         "todos": TWO_PENDING,
         "assembled_context": {"system": "你是构建 agent。", "todo_board": [], "scope": "main"},
         "actor_messages": _history(8, 1000),

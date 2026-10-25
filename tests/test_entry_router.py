@@ -28,11 +28,37 @@ def test_empty_string_counts_as_unset():
 
 
 def test_partial_questionnaire_still_routes_to_ask_tasks():
-    """02 真值表新行：问卷部分填写+task_brief 未设 → ask_tasks（问卷轮）。"""
+    """02 真值表新行：问卷字段填写与否不影响——task_brief 未设 → ask_tasks。"""
     assert entry_route({"user_mode": "novice"}) == "ask_tasks"
     assert (
         entry_route({"user_mode": "novice", "guidance_pref": "auto", "skill_packs": []})
         == "ask_tasks"
+    )
+
+
+def test_guidance_trigger_row_when_pref_unset():
+    """14 票新行：简报+方式已定且指引未答（falsy）→ guidance_trigger。"""
+    assert entry_route({"task_brief": "x", "build_way": "way2"}) == "guidance_trigger"
+    assert entry_route({"task_brief": "x", "build_way": "way4"}) == "guidance_trigger"
+    # falsy 判定：None/空串同未设
+    assert entry_route({"task_brief": "x", "build_way": "way1", "guidance_pref": None}) == (
+        "guidance_trigger"
+    )
+    assert entry_route({"task_brief": "x", "build_way": "way1", "guidance_pref": ""}) == (
+        "guidance_trigger"
+    )
+    # question 续跑（答案消费）也走 guidance_trigger
+    assert entry_route(
+        {"task_brief": "x", "build_way": "way1", "turn_end_reason": "question"}
+    ) == "guidance_trigger"
+
+
+def test_guidance_trigger_row_precedes_way4_proposals_row():
+    """行序：指引未答压过 way4 三方案行。"""
+    assert entry_route({"task_brief": "x", "build_way": "way4"}) == "guidance_trigger"
+    assert (
+        entry_route({"task_brief": "x", "build_way": "way4", "guidance_pref": "auto"})
+        == "proposals"
     )
 
 
@@ -48,6 +74,7 @@ def test_other_dashboard_fields_do_not_affect_route():
     state = {
         "task_brief": "x",
         "build_way": "way4",
+        "guidance_pref": "auto",
         "todos": [{"content": "t", "status": "pending"}],
         "main_loop_count": 3,
         "turn_end_reason": "round",

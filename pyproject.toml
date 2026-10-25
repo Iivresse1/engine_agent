@@ -20,7 +20,7 @@ test = ["pytest>=8"]
 lint = ["ruff>=0.6"]
 
 [project.scripts]
-project-agent = "project_agent.cli:main"
+engine = "project_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

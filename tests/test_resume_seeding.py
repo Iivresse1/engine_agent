@@ -18,14 +18,10 @@ pytestmark = pytest.mark.replay
 
 
 def _drive_to_choice_breakpoint(app, thread_id) -> None:
-    """推会话到 choice:build_way 断点：首条进图 + 四问 + 触发 choice。"""
+    """推会话到 choice:build_way 断点：首条进图（简报写定）+ 触发 choice。"""
     io = ScriptedIO(
         [
-            "我想做一个记账 CLI",
-            "有一定编程基础",  # Q1 user_mode
-            "自动每轮",  # Q2 guidance_pref
-            "AI 自动审核",  # Q3 decision_mode
-            "默认技能包",  # Q4 skill_packs
+            "我想做一个记账 CLI",  # 首条自由文本 → 简报写定（14 票）
             "嗯",  # 触发 build_ways → choice 断点
             "/exit",
         ]
@@ -42,11 +38,14 @@ def test_choice_answer_survives_process_restart():
     _drive_to_choice_breakpoint(app, thread_id)
 
     # "重启"：全新 ReplHost——run() 须从 checkpointer 回灌末态
-    io = ScriptedIO(["对话", "/status", "/exit"])
+    io = ScriptedIO(["对话", "需要", "/status", "/exit"])
     ReplHost(app, io, thread_id).run()
     out = "\n".join(io.outputs)
     assert "build_way: way1" in out  # 决议生效，非 choice 重发
     assert "断点 · choice:build_way" not in out
+    # 决议同轮指引一问 → 答案落盘（guidance_pref/user_mode）
+    assert "guidance_pref: auto" in out
+    assert "user_mode: novice" in out
 
 
 def test_stub_app_without_get_state_skips_seeding():
@@ -67,4 +66,6 @@ def test_fresh_thread_seeding_is_noop():
     io = ScriptedIO(["我想做个工具", "/exit"])
     ReplHost(app, io, new_thread_id()).run()
     out = "\n".join(io.outputs)
-    assert "断点 · question" in out  # 正常问卷断点
+    # 14 票：首条自由文本 → 简报写定（round 断点）
+    assert "断点 · round" in out
+    assert "任务简报已记录：我想做个工具" in out

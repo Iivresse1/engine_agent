@@ -49,6 +49,7 @@ def test_main_loop_full_replay():
             "build_way": "way1",
             "user_mode": "experienced",
             "guidance_pref": "off",
+            "guidance_mode": "off",
             "decision_mode": "manual",
             "skill_packs": [],
             "actor_messages": [HumanMessage(content="我想做记账工具")],
@@ -125,6 +126,7 @@ def test_main_loop_cleared_unpassed_count_increments_then_replans():
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "off",
             "actor_messages": [HumanMessage(content="seed")],
         },
         cfg,
@@ -159,6 +161,7 @@ def test_main_loop_isolation_redline_with_demo_seed():
         {
             "task_brief": "x",
             "build_way": "way1",
+            "guidance_pref": "off",
             "todos": [
                 {"content": "梳理需求边界", "status": "pending"},
                 {"content": "推进对话任务", "status": "pending"},

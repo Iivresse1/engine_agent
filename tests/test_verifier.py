@@ -184,13 +184,25 @@ def test_verifier_count_increment_matrix(todos, task_complete, count_before, cou
 
 def test_entry_route_row5_cleared_and_not_complete_to_planner():
     """行 5：todos 清且 task_complete 假 → planner（耗尽恢复路径由 planner 清零）。"""
-    state = {"task_brief": "x", "build_way": "way1", "todos": TWO_DONE, "task_complete": False}
+    state = {
+        "task_brief": "x",
+        "build_way": "way1",
+        "guidance_pref": "auto",
+        "todos": TWO_DONE,
+        "task_complete": False,
+    }
     assert entry_route(state) == PLANNER
 
 
 def test_entry_route_row7_task_complete_true_to_docs_done():
     """行 7（11 改道）：task_complete 真 → docs_done（demo 决议断点）。"""
-    state = {"task_brief": "x", "build_way": "way1", "todos": TWO_DONE, "task_complete": True}
+    state = {
+        "task_brief": "x",
+        "build_way": "way1",
+        "guidance_pref": "auto",
+        "todos": TWO_DONE,
+        "task_complete": True,
+    }
     assert entry_route(state) == "docs_done"
 
 
@@ -202,6 +214,7 @@ def test_entry_route_count5_rows_edge_cases():
             {
                 "task_brief": "x",
                 "build_way": "way1",
+                "guidance_pref": "auto",
                 "todos": TWO_PENDING,
                 "main_loop_count": 5,
             }
@@ -213,6 +226,7 @@ def test_entry_route_count5_rows_edge_cases():
             {
                 "task_brief": "x",
                 "build_way": "way1",
+                "guidance_pref": "auto",
                 "todos": TWO_DONE,
                 "task_complete": False,
                 "main_loop_count": 5,
@@ -226,6 +240,7 @@ def test_entry_route_count5_rows_edge_cases():
                 {
                     "task_brief": "x",
                     "build_way": "way1",
+                    "guidance_pref": "auto",
                     "todos": TWO_DONE,
                     "task_complete": True,
                     count_key: 5,
@@ -242,6 +257,7 @@ def test_entry_route_row7_beats_count5():
             {
                 "task_brief": "x",
                 "build_way": "way1",
+                "guidance_pref": "auto",
                 "todos": TWO_DONE,
                 "task_complete": True,
                 "main_loop_count": 4,
@@ -260,6 +276,7 @@ def test_graph_work_round_with_verifier():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
@@ -288,6 +305,7 @@ def test_graph_cleared_unpassed_replans_same_round():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "main_loop_count": 1,
@@ -315,6 +333,7 @@ def test_graph_both_passed_ends():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "guidance_mode": "off",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
@@ -336,6 +355,7 @@ def test_graph_model_none_actor_direct_to_end():
         {
             "task_brief": "想法",
             "build_way": "way1",
+            "guidance_pref": "auto",
             "todos": TWO_PENDING,
             "actor_messages": [HumanMessage(content="开始")],
         },

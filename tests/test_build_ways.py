@@ -212,7 +212,7 @@ def test_node_callable_without_config():
 
 
 def test_choice_flow_through_graph():
-    """图级：choice 断点 → 决议输入 → build_way 写定（静态推荐路径）。"""
+    """图级：choice 断点 → 决议输入 → build_way 写定 → 同轮指引一问（14 票）。"""
     saver = InMemorySaver()
     app = build_graph(checkpointer=saver, model=None)
     cfg = _cfg("g1")
@@ -228,4 +228,16 @@ def test_choice_flow_through_graph():
     r2 = app.invoke({"resolution_inputs": pending}, cfg)
     assert r2["build_way"] == "way1"
     assert r2["resolution_inputs"] == []
-    assert r2["turn_end_reason"] == "round"
+    # 14 票：决议后同轮接 guidance_trigger → 指引一问（question 断点）
+    assert r2["turn_end_reason"] == "question"
+    assert (
+        r2["turn_end_payload"]["question_text"]
+        == "需要每轮给出指引帮助更好的理解项目吗 —— 构建时配讲解"
+    )
+
+    # 指引答案 → 落盘 + round 收轮
+    r3 = app.invoke({"actor_messages": [HumanMessage(content="需要")]}, cfg)
+    assert r3["guidance_pref"] == "auto"
+    assert r3["guidance_mode"] == "off"  # way1 纯对话无构建轮可指引
+    assert r3["turn_end_reason"] == "round"
+    assert "指引偏好已记录" in r3["turn_end_payload"]["round_output"]

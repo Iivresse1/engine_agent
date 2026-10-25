@@ -1,9 +1,14 @@
-"""CLI 入口：project-agent 控制台脚本或 python -m project_agent.cli。
+"""CLI 入口：engine 控制台脚本或 python -m project_agent.cli。
 
 v1.5 接线票：真模型入图——config.env（ensure_config）→ build_model_runtime
 装配 MeteredModel/SharedDocs/AskBypass → build_graph(model=..., cheap_model=...,
 workspace_root=cwd)：verifier 环闭合、压缩横切挂上、/compact 与 /ask-for-help
 可用；账单落 --state 同目录 ledger.json。
+
+14 票（UX-1）：命令名 engine（旧名 project-agent 废弃）；--state 默认
+**每项目** `<cwd>/.project-agent/state.db`（config 仍全局）；首启无配置先试
+tkinter 窗口（gui_config），失败退终端问卷；ReplHost 种子注入
+decision_mode（配置开关）/skill_packs（默认包）。
 """
 
 from __future__ import annotations
@@ -13,8 +18,9 @@ import json
 import sys
 from pathlib import Path
 
-from project_agent.config import IO, ConfigStore, ensure_config
+from project_agent.config import IO, AppConfig, ConfigStore, ensure_config
 from project_agent.graph import build_graph, new_thread_id, sqlite_checkpointer
+from project_agent.gui_config import collect_config_gui
 from project_agent.repl import ReplHost
 from project_agent.runtime import build_model_runtime
 
@@ -43,8 +49,13 @@ def _force_utf8_stdio() -> None:
 
 
 def default_config_path() -> Path:
-    """config.env（v1.5：.env 密钥惯例格式；旧 config.json 自动迁移）。"""
+    """全局应用级配置（v1.5：.env 密钥惯例格式；旧 config.json 自动迁移）。"""
     return Path.home() / ".project-agent" / "config.env"
+
+
+def default_state_path() -> Path:
+    """每项目断点库（14 票：cwd/.project-agent/；session/ledger 同目录）。"""
+    return Path.cwd() / ".project-agent" / "state.db"
 
 
 def _session_path(state_path: Path) -> Path:
@@ -66,14 +77,23 @@ def _load_or_new_thread(session_path: Path, *, fresh: bool) -> str:
     return thread_id
 
 
+def _first_run_config(store: ConfigStore, io: IO) -> AppConfig:
+    """首启取配置：tkinter 窗口优先，取消/不可用 → 终端问卷 fallback。"""
+    gui_config = collect_config_gui()
+    if gui_config is not None:
+        store.save(gui_config)
+        return gui_config
+    return ensure_config(store, io)
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="project-agent")
+    parser = argparse.ArgumentParser(prog="engine")
     parser.add_argument("--config", type=Path, default=default_config_path())
     parser.add_argument(
         "--state",
         type=Path,
         default=None,
-        help="断点持久化数据库（默认：配置同目录 state.db）",
+        help="断点持久化数据库（默认：当前目录 .project-agent/state.db）",
     )
     parser.add_argument(
         "--new-session", action="store_true", help="开新 thread（不接续旧断点）"
@@ -82,9 +102,10 @@ def main(argv: list[str] | None = None) -> None:
 
     _force_utf8_stdio()
 
-    state_path = args.state or args.config.with_name("state.db")
+    state_path = args.state or default_state_path()
     io: IO = ConsoleIO()
-    config = ensure_config(ConfigStore(args.config), io)
+    store = ConfigStore(args.config)
+    config = store.load() or _first_run_config(store, io)
     thread_id = _load_or_new_thread(_session_path(state_path), fresh=args.new_session)
 
     with sqlite_checkpointer(state_path) as checkpointer:
@@ -107,6 +128,10 @@ def main(argv: list[str] | None = None) -> None:
             cheap_model=runtime.cheap_model,
             shared_docs=runtime.shared_docs,
             ask_bypass=runtime.ask_bypass,
+            initial_dashboard={
+                "decision_mode": config.decision_mode,
+                "skill_packs": ["default"],
+            },
         ).run()
 
 
