@@ -12,7 +12,6 @@ import pytest
 
 from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
 
-
 # —— BUILD_LOG 轮次生成物：不存在 → [] ——
 
 def test_read_rounds_empty_when_file_missing(tmp_path: Path):

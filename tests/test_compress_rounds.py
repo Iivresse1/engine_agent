@@ -16,7 +16,6 @@ from project_agent.compression import (
 )
 from tests.doubles.fake_model import ScriptedModel
 
-
 # —— compress_rounds：便宜模型调用契约（验收 4 子档）——
 
 

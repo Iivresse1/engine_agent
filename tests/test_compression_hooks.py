@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from project_agent.graph import build_graph
-from project_agent.nodes import make_actor_node, with_compression
+from project_agent.nodes import with_compression
 from project_agent.shared_docs import SharedDocs
 from tests.doubles.fake_model import ScriptedModel
 

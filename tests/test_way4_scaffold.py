@@ -12,16 +12,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from project_agent.deliverables import DELIVERABLE_SETS
 from project_agent.graph import build_graph
 from project_agent.nodes import (
-    _grilling_body,
-    make_assembler_node,
     make_actor_node,
+    make_assembler_node,
 )
 from project_agent.shared_docs import SharedDocs
 from tests.doubles.fake_model import ScriptedModel

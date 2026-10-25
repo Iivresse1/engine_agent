@@ -120,7 +120,6 @@ def test_grilling_body_model_response_flows_full_pipeline(tmp_path):
 
 def test_graph_way2_grilling_replay(tmp_path):
     """way2 回放：R1 澄清问题（带记录桥）→ R2 完成勾选。【R#】逐轮落盘。"""
-    from project_agent.shared_docs import SharedDocs
 
     saver = InMemorySaver()
     model = ScriptedModel(

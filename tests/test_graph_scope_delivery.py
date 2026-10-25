@@ -16,7 +16,6 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from project_agent.graph import build_graph
-from project_agent.shared_docs import SharedDocs
 from project_agent.tools.registry import ALL_TOOLS
 from tests.doubles.fake_model import ScriptedModel
 

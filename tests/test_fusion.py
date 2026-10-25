@@ -51,9 +51,7 @@ def test_question_without_asker_defaults_to_actor():
 
 def test_resolution_reasons_feed_resolution_channel():
     """01 欠账 a：RESOLUTION 显式语义——输入经 resolution_inputs 通道送决议节点。"""
-    import pytest
 
-    from project_agent.protocol import BreakpointSpec
 
     for reason in (
         TurnEndReason.CHOICE_BUILD_WAY,

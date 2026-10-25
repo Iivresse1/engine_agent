@@ -17,16 +17,16 @@
 5. yolo+full 档无任何保护，OS 级沙箱是 v2+。
 """
 
-from .decision import Decision, DecisionAction
-from .registry import ToolRegistry, UnknownRoleError
-from .knobs import Boundary, Interrupt, ShellKnobs, from_decision_mode
-from .shell_policy import ShellPolicy, WhitelistRules, load_rules
 from .approval import (
     ApprovalRequest,
     ApprovalResult,
     ShellApprovalCallback,
     TerminalApprovalCallback,
 )
+from .decision import Decision, DecisionAction
+from .knobs import Boundary, Interrupt, ShellKnobs, from_decision_mode
+from .registry import ToolRegistry, UnknownRoleError
+from .shell_policy import ShellPolicy, WhitelistRules, load_rules
 from .shell_tool import ShellPermissionDenied, ShellRunner, ShellTool
 
 __all__ = [

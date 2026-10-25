@@ -11,7 +11,11 @@ import uuid
 from typing import Any, Mapping, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 
+# 节点 config 注解钉 typing.Optional 形式（非 PEP 604 `| None`）：langgraph
+# 1.2.17 的签名白名单只认 Optional[RunnableConfig]（含字符串注解形式），
+# 写 `RunnableConfig | None` 会触发 UserWarning 且 config 不再注入。
 from project_agent.ask_agent import build_guidance
 from project_agent.compression import (
     DEFAULT_BUDGET_TOKENS,
@@ -25,7 +29,6 @@ from project_agent.compression import (
     should_compress,
 )
 from project_agent.onboarding import (
-    QUESTIONNAIRE,
     interpret_answer,
     next_unset_field,
     question_for,
@@ -275,7 +278,7 @@ def make_build_ways_node(model: Any = None):
         return label, reason
 
     def build_ways_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if state.get("build_way"):
             return {}
@@ -411,7 +414,7 @@ def make_proposals_node(model: Any = None):
         return parsed if parsed else list(_FALLBACK_PROPOSALS)
 
     def proposals_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if state.get("selected_proposal") is not None:
             return {}
@@ -549,7 +552,7 @@ def make_assembler_node(
     """
 
     def context_assembler_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         todos = state.get("todos") or []
         current_scope = str(state.get("current_scope") or "main")
@@ -870,7 +873,7 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
     """
 
     def actor_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if model is None:
             return _round_end(_ACTOR_SKELETON_NOTICE, state)
@@ -968,7 +971,7 @@ def make_verifier_node(model: Any = None):
     """
 
     def verifier_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         todos = state.get("todos") or []
         todos_all_completed = _todos_all_completed(todos)
@@ -1146,7 +1149,7 @@ def make_demo_agent_node(
     """
 
     def demo_agent_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if model is None:
             return _round_end(_DEMO_SKELETON_NOTICE, state)
@@ -1213,7 +1216,7 @@ def make_finalizer_node(
     """
 
     def finalizer_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if model is None:
             return _round_end("finalizer 待真模型接入（12 骨架）：本轮无产出。", state)
@@ -1279,7 +1282,7 @@ def make_check_node(
         return "；".join(parts)
 
     def check_node(
-        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         if shared_docs is None or model is None:
             return _round_end("终检待接线（需 shared_docs+model）：本轮无产出。", state)
@@ -1553,7 +1556,7 @@ def with_compression(
     if cheap_model is None:
         return node_fn
 
-    def wrapped(state: Mapping[str, Any], config: Any = None) -> dict[str, Any]:
+    def wrapped(state: Mapping[str, Any], config: Optional[RunnableConfig] = None) -> dict[str, Any]:
         compression_updates = run_compression_check(
             messages=state.get(messages_key) or [],
             model=None,

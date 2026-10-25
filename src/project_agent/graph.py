@@ -20,8 +20,8 @@ from project_agent.nodes import (
     docs_done_node,
     guidance_trigger_node,
     loop_exhausted_node,
-    make_assembler_node,
     make_actor_node,
+    make_assembler_node,
     make_build_ways_node,
     make_check_node,
     make_demo_agent_node,
@@ -52,8 +52,8 @@ from project_agent.routing import (
     _after_verifier,
     route_from_start,
 )
-from project_agent.state import GraphState
 from project_agent.shared_docs import SharedDocs
+from project_agent.state import GraphState
 
 
 def new_thread_id() -> str:

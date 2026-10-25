@@ -6,9 +6,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
-from project_agent.config import ConfigStore, IO, ensure_config
+from project_agent.config import IO, ConfigStore, ensure_config
 from project_agent.graph import build_graph, new_thread_id, sqlite_checkpointer
 from project_agent.repl import ReplHost
 

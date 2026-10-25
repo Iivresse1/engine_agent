@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from project_agent.ledger import RoleUsage, TokenLedger
+from project_agent.ledger import TokenLedger
 from project_agent.model_client import ModelUsage
 
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from .decision import Decision, DecisionAction, merge_decisions
@@ -33,7 +33,6 @@ from .static_checker import (
     Segment,
     StaticChecker,
     parse_command,
-    program_of,
     strip_wrappers,
 )
 

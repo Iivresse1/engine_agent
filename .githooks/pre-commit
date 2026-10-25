@@ -1,0 +1,11 @@
+#!/bin/sh
+# 护栏：提交前 ruff + pytest 全绿（全套 ~6s，不做部分选择）。
+# 环境钉 .venv；换解释器=换规则集，禁止回退全局 python。
+PY=.venv/Scripts/python.exe
+[ -f "$PY" ] || PY=.venv/bin/python
+if [ ! -f "$PY" ]; then
+  echo "pre-commit: 缺 .venv —— python -m venv .venv && $PY -m pip install -e '.[test,lint]'" >&2
+  exit 1
+fi
+"$PY" -m ruff check . || exit 1
+"$PY" -m pytest -q || exit 1
