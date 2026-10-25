@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+.worktrees/
+
+# 密钥与本地状态（v1.5 接线票：防推送泄露）
+.env
+.env.*
+*.env
+config.json
+ledger.json
+state.db
+state.db.session.json
+.project-agent/
+
+# 自托管冒烟产物（workspace_root=cwd 时 actor 落盘；用户项目里是合法交付物）
+BUILD_LOG.md
+NOTES.md
