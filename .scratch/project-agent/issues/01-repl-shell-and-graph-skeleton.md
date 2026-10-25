@@ -4,7 +4,7 @@
 
 **Blocked by:** None（can start immediately）
 
-**Status:** ready-for-agent
+**Status:** done（2026-10-24 实现，提交 ea9b94c+090bf5c+e1c36c3+33e773d，01 先行骨架票）
 
 - [x] 首启问一次模型/API 写盘，再启零提问直达会话
 - [x] 斜杠命令前缀匹配零 LLM 分发；非斜杠输入进主图
