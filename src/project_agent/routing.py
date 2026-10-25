@@ -28,6 +28,8 @@ ACTOR = "actor"
 VERIFIER = "verifier"
 DOCS_DONE = "docs_done"
 DEMO_AGENT = "demo_agent"
+FINALIZER = "finalizer"
+CHECK_PROPER_OUTPUT = "check_proper_output"
 LOOP_EXHAUSTED = "loop_exhausted"
 
 END_MAP: dict[str, str] = {
@@ -38,6 +40,7 @@ END_MAP: dict[str, str] = {
     CONTEXT_ASSEMBLER: CONTEXT_ASSEMBLER,
     DOCS_DONE: DOCS_DONE,
     DEMO_AGENT: DEMO_AGENT,
+    FINALIZER: FINALIZER,
     LOOP_EXHAUSTED: LOOP_EXHAUSTED,
 }
 
@@ -166,6 +169,19 @@ ENTRY_TRUTH_TABLE: list[tuple[dict[str, Any], str]] = [
         },
         DOCS_DONE,
     ),
+    # 12 行 8：is_docs_finished 真且 demo_phase=="skipped" → FINALIZER
+    # （终态路由接管：跳过 demo 的会话直通终检）
+    (
+        {
+            "task_brief": "x",
+            "build_way": "way1",
+            "todos": [{"content": "a", "status": "completed"}],
+            "task_complete": True,
+            "is_docs_finished": True,
+            "demo_phase": "skipped",
+        },
+        FINALIZER,
+    ),
 ]
 
 
@@ -206,28 +222,33 @@ def entry_route(dashboard: Mapping[str, Any]) -> str:
         return LOOP_EXHAUSTED  # 行 6：任一环计数>=5（demo 报错环封顶在此先行）
     if dashboard.get("demo_phase") == "building":
         return DEMO_AGENT  # 11 行 7 前：demo 构建中（报错回传环入口）
+    if dashboard.get("is_docs_finished") and dashboard.get("demo_phase") == "skipped":
+        return FINALIZER  # 12 行 8：终态路由接管——skipped demo 直通终检
     return DOCS_DONE  # 行 7（11 改道）：task_complete 真→demo 决议断点
 
 
 def _after_docs_done(state: Mapping[str, Any]) -> str:
-    """docs_done 出口条件边（11 票终裁 A，纯函数）：三态路由。
+    """docs_done 出口条件边（11 票终裁 A → 12 票改向，纯函数）。
 
     demo_phase=="building" → DEMO_AGENT（同轮接 demo，turn_end 由后节点写）；
-    "skipped" / 未决（断点收轮）→ END。
+    "skipped" / "done" → FINALIZER（12 改向：终检接管，原 END 边被替换）；
+    未决（断点收轮）→ END。
     """
     if state.get("demo_phase") == "building":
         return DEMO_AGENT
+    if state.get("demo_phase") in ("skipped", "done"):
+        return FINALIZER
     return END
 
 
 def _after_demo(state: Mapping[str, Any]) -> str:
-    """DEMO_AGENT 出口条件边（11 票终裁 B，纯函数）。
+    """DEMO_AGENT 出口条件边（11 票终裁 B → 12 票改向，纯函数）。
 
     计数封顶优先：demo_loop_count>=5 → LOOP_EXHAUSTED（报错环耗尽）；
-    否则 END（每轮一个修复回合，断点收轮）。"""
+    否则 FINALIZER（12 改向：demo 完成后进终检——原 END 收轮边被替换）。"""
     if int(state.get("demo_loop_count") or 0) >= 5:
         return LOOP_EXHAUSTED
-    return END
+    return FINALIZER
 
 
 def _after_verifier(state: Mapping[str, Any]) -> str:
@@ -243,6 +264,20 @@ def _after_verifier(state: Mapping[str, Any]) -> str:
         return END
     if not todos_all_completed:
         return END
+    return PLANNER
+
+
+def _after_check(state: Mapping[str, Any]) -> str:
+    """check_proper_output 出口条件边（12 票，纯函数）。
+
+    output_clean 真→END（FINISHED 断点已写，终态）；假且
+    final_check_loop_count<5→PLANNER（回环修复）；==5→LOOP_EXHAUSTED
+    （断点已写，含失败明细）。
+    """
+    if state.get("output_clean"):
+        return END
+    if int(state.get("final_check_loop_count") or 0) >= 5:
+        return LOOP_EXHAUSTED
     return PLANNER
 
 

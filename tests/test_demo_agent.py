@@ -163,29 +163,36 @@ def test_demo_node_reads_pasted_error_from_tail(tmp_path):
     assert "报错上下文：Traceback (most recent call last):" in prompt
 
 
-# —— 条件边 _after_demo：计数封顶 5 → LOOP_EXHAUSTED，否则 END ——
+# —— 条件边 _after_demo：计数封顶 5 → LOOP_EXHAUSTED，否则 FINALIZER（12 改向） ——
 
 
 @pytest.mark.parametrize(
     ("state", "expected"),
     [
         ({"demo_loop_count": 5}, LOOP_EXHAUSTED),
-        ({"demo_loop_count": 4}, "END"),
-        ({}, "END"),
+        ({"demo_loop_count": 4}, "finalizer"),
+        ({}, "finalizer"),
     ],
     ids=["count5", "count4", "unset"],
 )
 def test_after_demo_gate(state, expected):
-    from langgraph.graph import END
+    from project_agent.routing import FINALIZER
 
-    assert _after_demo(state) == (END if expected == "END" else expected)
+    assert _after_demo(state) == (FINALIZER if expected == "finalizer" else expected)
 
 
 # —— 图级回放：入口 demo 行 / 报错回传 / 计满断点 / docs_done 同轮接 demo ——
 
 
 def test_graph_entry_demo_row_routes_error_back_into_demo_agent(tmp_path):
-    model = ScriptedModel(["修复完成。", "第二次修复。"])
+    model = ScriptedModel(
+        [
+            "修复完成。",
+            "终稿报告。",  # 12：demo 轮后接 finalizer
+            "已着手修复第二次报错。",  # actor 工作轮（未清）
+            "task_complete: false",  # verifier（未过收轮）
+        ]
+    )
     app = build_graph(
         checkpointer=InMemorySaver(), model=model, workspace_root=tmp_path
     )
@@ -194,22 +201,41 @@ def test_graph_entry_demo_row_routes_error_back_into_demo_agent(tmp_path):
     seed["actor_messages"] = [HumanMessage(content="主线")]
     seed["demo_messages"] = [HumanMessage(content="Traceback (most recent call last): boom")]
     r = app.invoke({**seed, "demo_loop_count": 0}, cfg)
+    # demo→finalizer→check：way3 零交付文件 → 终检缺件 → 开新环（round 轮）
     assert r["turn_end_reason"] == "round"
+    assert r["final_check_loop_count"] == 1
     assert model.calls[0]["role"] == "demo_agent"
     assert "报错上下文：Traceback (most recent call last): boom" in model.calls[0][
         "messages"
     ][0]["content"]
 
+    # 报错回传：REPL 语义融合 demo_messages——但 12 终检环已开（todos 重置
+    # 为模板 pending）→ 入口行 4 优先：先走主环工作轮（actor 未清收轮）
     r2 = app.invoke(
         {"demo_messages": [HumanMessage(content="第二次报错：Error: x")]}, cfg
     )
     assert r2["turn_end_reason"] == "round"
-    assert len(model.calls) == 2
-    assert "第二次报错：Error: x" in model.calls[1]["messages"][0]["content"]
+    # 角色序列：demo_agent→finalizer（首invoke）→actor→verifier（次invoke）
+    assert [c["role"] for c in model.calls] == [
+        "demo_agent",
+        "finalizer",
+        "actor",
+        "verifier",
+    ]
+    # 报错进 demo_messages（REPL 融合通道——demo 私有历史）
+    assert any(
+        "第二次报错：Error: x" in str(getattr(m, "content", ""))
+        for m in r2["demo_messages"]
+    )
 
 
 def test_graph_docs_done_build_resolution_hands_to_demo_same_round(tmp_path):
-    model = ScriptedModel(["写入：demo/main.py\nprint('hi')\n运行：python demo/main.py"])
+    model = ScriptedModel(
+        [
+            "写入：demo/main.py\nprint('hi')\n运行：python demo/main.py",
+            "终稿报告。",  # 12：demo 后接 finalizer
+        ]
+    )
     app = build_graph(
         checkpointer=InMemorySaver(), model=model, workspace_root=tmp_path
     )
@@ -227,13 +253,23 @@ def test_graph_docs_done_build_resolution_hands_to_demo_same_round(tmp_path):
     assert r0["turn_end_reason"] == "docs_done"
     r1 = app.invoke({"resolution_inputs": ["构建 demo"]}, cfg)
     assert r1["demo_phase"] == "building"
-    assert r1["turn_end_reason"] == "round"  # demo 节点写断点（docs_done 不写）
-    assert "运行权在用户（ADR-0003）" in r1["turn_end_payload"]["round_output"]
+    # demo 节点写断点（docs_done 不写）；12 改向：同轮继续 FINALIZER→CHECK
+    # ——way3 交付物未写（demo 只产 demo/main.py）→ 终检缺件开新环
+    assert r1["turn_end_reason"] == "round"
+    assert r1["final_check_loop_count"] == 1
     assert (tmp_path / "demo" / "main.py").is_file()
+    assert r1["final_report"] == "终稿报告。"
 
 
 def test_graph_demo_loop_count_5_hits_loop_exhausted_with_demo_scene(tmp_path):
-    model = ScriptedModel(["不应被调用"])
+    model = ScriptedModel(
+        [
+            "不应被调用",  # demo 轮（首 invoke）
+            "终稿报告。",  # finalizer（同轮接续）
+            "完成：梳理需求边界。完成：编写 README。完成：编写 TODO。完成：生成目录树",  # actor 勾全
+            "task_complete: true",  # verifier
+        ]
+    )
     app = build_graph(
         checkpointer=InMemorySaver(), model=model, workspace_root=tmp_path
     )
@@ -241,10 +277,19 @@ def test_graph_demo_loop_count_5_hits_loop_exhausted_with_demo_scene(tmp_path):
     seed = dict(DEMO_STATE)
     seed["demo_loop_count"] = 4
     seed["demo_messages"] = [HumanMessage(content="第 4 次报错")]
-    app.invoke(seed, cfg)  # 4 < 5：入口 demo 行 → demo 节点
-    r = app.invoke(
+    r = app.invoke(seed, cfg)  # 4 < 5：入口 demo 行 → demo 节点
+    # 12：demo 后 finalizer+check——way3 零交付文件 → 终检缺件开新环
+    assert r["turn_end_reason"] == "round"
+    assert r["final_check_loop_count"] == 1
+    # 终检环新计划先走主环工作轮：actor 勾修复项 + verifier 双过 → END 收轮
+    r_fix = app.invoke(
+        {"actor_messages": [HumanMessage(content="修一下")]}, cfg
+    )
+    assert r_fix["turn_end_reason"] == "round"
+    # 第 5 次报错回传（REPL 语义）：demo 环计数 5 → 入口行 6 → LOOP_EXHAUSTED
+    r2 = app.invoke(
         {"demo_messages": [HumanMessage(content="第 5 次报错")], "demo_loop_count": 5},
         cfg,
     )
-    assert r["turn_end_reason"] == "loop_exhausted"
-    assert "demo 环计数 5" in r["turn_end_payload"]["scene"]
+    assert r2["turn_end_reason"] == "loop_exhausted"
+    assert "demo 环计数 5" in r2["turn_end_payload"]["scene"]

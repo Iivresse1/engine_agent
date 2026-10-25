@@ -1192,8 +1192,174 @@ def make_demo_agent_node(
     return demo_agent_node
 
 
+# —— 12 票：finalizer 收尾整理 + check_proper_output 终检管线 ——
+
+
+_FINAL_REPORT_PROMPT_HEAD = "任务：{brief}\n方式：{way}\n最后轮摘要：{round_summary}\n"
+_NOTEPAD_HEADLINE = "Notepad 要点："
+
+
+def _notepad_headlines(shared_docs: Any, limit: int = 5) -> str:
+    """NOTES.md 概览：前 {limit} 条（content），无→"无"。"""
+    if shared_docs is None:
+        return "无"
+    entries = shared_docs.notepad_entries()
+    if not entries:
+        return "无"
+    return "\n".join(f"- {content}" for _no, content in entries[:limit])
+
+
+def make_finalizer_node(
+    model: Any = None,
+    store: Any = None,
+    shared_docs: Optional[SharedDocs] = None,
+):
+    """finalizer 节点工厂（12 票）：收尾整理产 final_report。
+
+    - prompt 汇总会话四要素：任务简报/构建方式/最后轮摘要/NOTES 概览
+      （前 5 条封顶），要求产出 final_report（项目成果+经验教训，200 字内）
+    - role="finalizer"；产出 final_report 写 state
+    - store 非 None → 存 f"final_report:{task_brief}"（跨线程长期记忆，
+      新会话 ask_tasks 检索注入——langgraph Store 正式接入留接线票）
+    - turn_end=round（round_output=报告全文；CHECK_PROPER_OUTPUT 后续
+      同轮接管终态——finished 断点由 check 节点写）
+    - model=None：写 round_end(骨架通告) 即返（CLI 无真模型不挂死）
+    """
+
+    def finalizer_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if model is None:
+            return _round_end("finalizer 待真模型接入（12 骨架）：本轮无产出。", state)
+
+        prompt = (
+            _FINAL_REPORT_PROMPT_HEAD.format(
+                brief=state.get("task_brief") or "",
+                way=state.get("build_way") or "",
+                round_summary=state.get("round_summary") or "",
+            )
+            + _NOTEPAD_HEADLINE
+            + _notepad_headlines(shared_docs)
+            + "\n产出一份 final_report（项目成果+经验教训，200 字内）"
+        )
+        result = model.complete(
+            [{"role": "user", "content": prompt}],
+            role=Role.FINALIZER.value,
+            thread_id=_thread_id_from(config),
+        )
+        report = str(result.text)
+        updates: dict[str, Any] = {
+            "final_report": report,
+            **_round_end(report, state),
+        }
+        if store is not None:
+            # key=task_brief 原文（简化终裁；langgraph Store 正式接入留接线票）
+            store.put(f"final_report:{state.get('task_brief') or ''}", report)
+        return updates
+
+    return finalizer_node
+
+
+def make_check_node(
+    model: Any = None,
+    shared_docs: Optional[SharedDocs] = None,
+):
+    """check_proper_output 节点工厂（12 票，=Q22 质检管线）。
+
+    - deliverable_set = DELIVERABLE_SETS[build_way]（对账表驱动）
+    - run_final_check(root=shared_docs.root, ...)——完整管线（快照/剥离/
+      误伤/语义/畸形/双份交付）
+    - output_clean 真 → turn_end_reason=finished + validate_payload(
+      FINISHED, {"delivery_paths": 结果 delivery_paths}) + output_clean=True
+    - 假 → final_check_loop_count=旧+1；==5 → LOOP_EXHAUSTED 断点（scene
+      含"终检环计数 5"与失败明细）；<5 → 回 planner 开新环：todos 重置为
+      [{"content": "系统性修复：{失败明细首项}", "status": "pending"}] +
+      turn_end=round（"终检未过：{失败摘要}，已开新环修复"）
+    - shared_docs=None：终检无从落盘 → 骨架通告（round 断点，CLI 零回归）
+    """
+
+    def _failure_detail(result: Mapping[str, Any]) -> str:
+        """失败明细首项：missing/误伤/语义/畸形 按序拼接摘要。"""
+        parts: list[str] = []
+        for key, label in (
+            ("missing", "缺件"),
+            ("false_positives", "误伤"),
+            ("semantic_failures", "语义"),
+            ("malformed", "畸形"),
+        ):
+            items = [str(x) for x in result.get(key) or []]
+            if items:
+                parts.append(f"{label}:{','.join(items)}")
+        return "；".join(parts)
+
+    def check_node(
+        state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
+    ) -> dict[str, Any]:
+        if shared_docs is None or model is None:
+            return _round_end("终检待接线（需 shared_docs+model）：本轮无产出。", state)
+
+        from project_agent.deliverables import DELIVERABLE_SETS
+        from project_agent.final_check import run_final_check
+
+        deliverable_set = DELIVERABLE_SETS.get(str(state.get("build_way") or ""), ())
+        result = run_final_check(
+            root=shared_docs.root,
+            deliverable_set=deliverable_set,
+            model=model,
+            thread_id=_thread_id_from(config),
+        )
+
+        if result["output_clean"]:
+            payload = validate_payload(
+                TurnEndReason.FINISHED,
+                {"delivery_paths": result["delivery_paths"]},
+            )
+            return {
+                "output_clean": True,
+                "turn_end_reason": TurnEndReason.FINISHED.value,
+                "turn_end_payload": payload,
+            }
+
+        # 未过：终检环计数 +1
+        loop_count = int(state.get("final_check_loop_count") or 0) + 1
+        detail = _failure_detail(result)
+        if loop_count >= 5:
+            payload = validate_payload(
+                TurnEndReason.LOOP_EXHAUSTED,
+                {
+                    "scene": f"终检环计数 5；失败明细：{detail}",
+                    "help_text": "终检连续 5 轮未通过，请人工接管：核对交付物或调整任务简报。",
+                },
+            )
+            return {
+                "final_check_loop_count": loop_count,
+                "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
+                "turn_end_payload": payload,
+            }
+
+        # <5：回 planner 开新环——todos 已设（planner 见 todos 已设重规划保计数）
+        return {
+            "final_check_loop_count": loop_count,
+            "todos": [
+                {
+                    "content": f"系统性修复：{detail or '终检未过'}",
+                    "status": "pending",
+                }
+            ],
+            **_round_end(f"终检未过：{detail}，已开新环修复", state),
+        }
+
+    return check_node
+
+
 def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
-    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。"""
+    """LOOP_EXHAUSTED 节点（05 票终裁 9）：耗尽断点——现场 + 求助说明。
+
+    12：终检环计数入 scene（终检耗尽路径可见）；可重入——上轮已写
+    loop_exhausted 断点（check 节点 5 计时含失败明细版）则零改写保留。
+    """
+    if state.get("turn_end_reason") == TurnEndReason.LOOP_EXHAUSTED.value:
+        return {}  # 已写耗尽断点（12 check 版含失败明细）——保留不覆盖
     todos = state.get("todos") or []
     done = sum(
         1
@@ -1202,11 +1368,13 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
     )
     count = int(state.get("main_loop_count") or 0)
     demo_count = int(state.get("demo_loop_count") or 0)
+    final_check_count = int(state.get("final_check_loop_count") or 0)
     payload = validate_payload(
         TurnEndReason.LOOP_EXHAUSTED,
         {
             "scene": (
                 f"主环计数 {count}；demo 环计数 {demo_count}；"
+                f"终检环计数 {final_check_count}；"
                 f"todos {done}/{len(todos)} 完成"
             ),
             "help_text": "已连续 5 轮未通过验收，请人工接管：调整任务简报或直接指示下一步。",
