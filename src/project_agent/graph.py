@@ -74,7 +74,8 @@ def build_graph(
 
     08：cheap_model 非 None → actor/verifier/assembler 三节点包
     with_compression（Q54 模型调用前统一压缩检查；planner 无 LLM 调用
-    不挂，demo 轮属后续票）；None → 裸节点（基线零回归）。"""
+    不挂）；11 票补第四挂点 DEMO_AGENT（读 demo_messages 私有历史）。
+    None → 裸节点（基线零回归）。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
     graph.add_node(ASK_TASKS, ask_tasks_node)
