@@ -218,7 +218,14 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **端到端实测**（真 DeepSeek key）：问卷四问→重启续跑→build_ways 真模型调用（recommendation "轻 grill"+个性化理由，非静态兜底"完整文档"）→ledger.json 落账 actor 1 调用 59入/16出。**主环正式活**——`再聊聊`类自由输入即走 assembler→actor→verifier 全环；actor 实测自发调技能（grilling/to-spec/tdd 头注入生效），way1 决议+规划轮+对话轮三连冒烟全过。
 - **续跑断点回灌 bug（冒烟发现即修，+3 测试 821 绿）**：跨进程重启在 RESOLUTION 类断点（choice:build_way）上丢首答——ReplHost 启动时 _last_state 空，fusion 把答案当 reason=None 融主线而非决议通道，choice 原样重发。修复 = run() 起手 `_seed_state_from_checkpoint()`（app.get_state 回灌末态；桩 app 无 get_state 跳过）。红绿双向验证（禁用回灌→红）。**根因属 01 票"断点持久化"欠账的盲区**：当时只验证了 question 类断点续跑（fusion 主线路径），RESOLUTION 通道跨进程是冒烟首覆盖。
 - **依赖**：+langchain-openai>=1.0（pip 实装 1.7.2，openai 3.37 传递带入）。
-- **接续**：v1.5 背欠清首项；余项（工具执行回路/decision_mode·skill_packs 图内消费者/AskUserQuestion 本体/…）不变。UX 票（engine 命名/tkinter 首启窗口/问卷重编排）在 grill 会话已锁定方向待开票。
+- **接续**：v1.5 背欠清首项；余项（工具执行回路/decision_mode·skill_packs 图内消费者/AskUserQuestion 本体/…）不变。
+
+**Q65（UX 方向五裁定 + 远端仓，2026-10-25 晚）**：
+- **CLI UI = Claude Code 一模一样**：TS 前端（React 19 + Ink）+ Python 后端双运行时确认（用户 Q1/Q2 合并裁定："Windows 观感"仅指 API 配置窗口=tkinter，CLI 本体走 Ink 克隆）。参考资料 claude-code-best/claude-code（23k star 逆向重实现）架构事实：Bun≥1.3 构建/React 19/@anthropic-ai/ink（vendored fork）/marked+cli-highlight+chalk 渲染/**get-east-asian-width 处理 CJK 宽度**（中文 UI 关键依赖）/src+components+screens+keybindings 分区。**License 红线：该仓无 License（全权保留），只学模式不抄代码**；Ink 用 npm 正版（MIT）。
+- **问卷重编排定稿**：①"今天要做什么呢？"（开场提示语+自由文本即首条图输入）②build_ways ③"是否需要每轮给出指引帮助更好的理解项目？"（挪到 build_ways 之后）。**user_mode 不再单独问**（用户裁定"指引问题已解决"）：指引答案驱动 guidance 兜底与 actor 提示词语气——推导规则=选"需要/先问"→novice 语气+guidance，"不需要"→experienced（实现时按此落，可否决）。decision_mode → 配置窗口（默认 ai_review）；skill_packs → 默认 ["default"] 交主 agent。
+- **配置窗口**：tkinter，字段=主模型/key/base_url/子模型+决策模式开关，**附"测试连接"按钮**（httpx 1-token ping，已在依赖树）。
+- **分发**：pipx；命令名 `engine`；远端仓 https://github.com/Iivresse1/engine_agent.git（首推 main=当前版本）。
+- **冒烟产物防再污染**：.gitignore +BUILD_LOG.md/NOTES.md（自托管冒烟 workspace_root=cwd 会落盘生成物；2aade20 曾误入 BUILD_LOG.md，c03edf2 amend 清除）。
 
 ## 挂起 / 待办
 
