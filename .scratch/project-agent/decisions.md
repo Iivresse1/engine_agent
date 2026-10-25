@@ -1,7 +1,7 @@
 # 项目构建 Agent — 设计决策台账
 
-Status: spec-v1.1（设计定稿，spec 已发布 ready-for-agent）
-更新: 2026-10-24
+Status: 12 票实现完成 + 终局评审收口 + /retro 环境改进落地（spec v1.5）
+更新: 2026-10-25
 
 ## 已钉下的决策
 
@@ -201,6 +201,13 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 12 票完成（合并 08bc4b7，791 绿，+58）：final_check 终检管线/memory_store/finalizer+check 节点/终检环。**拓扑终局**：DEMO_AGENT→FINALIZER（demo 后同轮进终检）；入口行 8=skipped 直通终检。**全部 12 张实现票完成（02–12，01 为先行骨架）——进入终局 code-review 收口**。剩余异议：终检新环 planner 模板板覆盖修复 todo（修复项持续性）；guidance_read_version 门归属（assembler vs 指引通道）——两项留 v1.5 裁定。
 
 **Q62（终局 code-review 两轴，2026-10-25）**：架构四红线全守住（零 interrupt/磁盘共享/demo 不运行/私有 key 隔离）+ 三张契约表全符（7 reason payload/融合目标、仪表盘 26 字段、真值表行序——两处字面不符属 11/12 有据改道）。**已修**：①术语（修复回合→循环）；②三处 payload 复用统一 _reuse_payload(state, reason)；③**/mode、/skills 运行时命令补齐**（用户故事 3 票拆分漏项——/mode 查改决策模式含中文别名，/skills add/remove 查改技能包，+11 测试，802 绿）；④spec v1.5 回填（入口路由真值表随 11/12 改道更新——"表即契约失守"批评成立；BUILD_LOG.md 载体记档）。**v1.5 背欠清单（接线票，非实现缺陷）**：工具执行回路（actor 无工具调用环，全靠文本指令桥）/decision_mode·skill_packs 图内零消费者/AskUserQuestion 工具本体/TodoWrite 私有面板 key/旁路 checkpointer 持久化/current_scope actor 写者/verify_link 接入指引/final_report 检索注入 ask_tasks/ask 档 question 断点循环/压缩挂点 finalizer+旁路+指引/finalizer 后 LangSmith 正式 Store。**Standards 轴 turn 命名族裁定**：字段名 spec 钉定不改；TurnEndReason 枚举名/_run_turn 方法名可改但涉及 12 票测试面，收益/成本比低——记档不修。
+
+**Q63（/retro 环境改进六候选落实，2026-10-25）**：按严重度 1→3→4→2→5→6 全部落地，803 绿零警告。
+- **护栏（1，提交 e6257da）**：pytest `filterwarnings=["error"]`——602 警告**治本归零零 ignore**：节点 config 注解 `Optional[Mapping]`/`Any`→`Optional[RunnableConfig]`（**langgraph 1.2.17 签名白名单只认 typing.Optional 形式，PEP 604 `| None` 反触发警告且 config 不再注入**——nodes.py 源码级注释钉死防倒退）；onboarding docstring r-string 修 `\W` SyntaxWarning。ruff 窄规则集 E4/E7/E9/F/W/I（风格判断项 UP/SIM/BLE 不进检查）+ tests 放宽 F841；26 条自动修。`.githooks/pre-commit`（ruff+pytest 全量，钉 .venv）经 `core.hooksPath` 接线；**红绿双向实测**（负例 F401 拦下）。坑记档：仓库 .venv 是唯一可跑环境（全局 anaconda 缺 langgraph-checkpoint-sqlite）；pyproject +`pythonpath=["src"]` 修根目录裸 pytest。
+- **playbook（3+6，提交 7afceda）**：`docs/agents/implement-spec-playbook.md`——零决策点派工单五要素（02/03/05/08 四死根因）/切片≤5 末片纯收口/残留优先死亡处置（10/11 票实测）/Windows patch BOM 坑一行；AGENTS.md 加派工指针（派工前/子代理死亡时两触发分支）。
+- **契约对账（4，同 7afceda）**：issue-tracker.md 票收口规则——Dashboard 字段/路由真值表改动必须回填 spec+契约测试，表与代码不一致=票未收口。
+- **术语哨兵（2，提交 3b75afa）**：`tests/test_glossary_sentinel.py`——AST 拆词（Camel+snake）对 GLOSSARY `_Avoid_` 单词子集机械强制；tools/ 路径豁免 interrupt/flag（Q23 裁定域术语）；turn_end_reason/payload 标识符豁免（spec 钉死键镜像）；agent/memory/多词避免词判例记哨兵 docstring 不机械禁。**Q62"记档不修"翻案**：TurnEndReason→RoundEndReason 实测仅 5 文件机械替换（12 票测试面成本当时高估），_run_turn/_invoke_turn→_run_round/_invoke_round 同批；字符串键 turn_end_reason/payload 维持 spec 钉定。红绿双向实测。
+- **导航（5，提交 a95cfa7）**：nodes.py 模块 docstring 相位目录（入口/主环/demo/终检/压缩横切，函数名锚点非行号——行号会腐烂）；旧 docstring 停在骨架时代只述 4/14 节点家族。按相位拆四文件的替代方案留待裁（v1.5 接线背欠继续增长时再议，拆有合并成本）。
 
 ## 挂起 / 待办
 
