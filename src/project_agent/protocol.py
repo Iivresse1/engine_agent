@@ -21,7 +21,7 @@ class Role(str, Enum):
     FINALIZER = "finalizer"  # 12：终检/收尾 LLM 调用角色（语义校验+final_report）
 
 
-class TurnEndReason(str, Enum):
+class RoundEndReason(str, Enum):
     ROUND = "round"
     QUESTION = "question"
     CHOICE_BUILD_WAY = "choice:build_way"
@@ -45,26 +45,26 @@ class BreakpointSpec:
     required_payload_fields: tuple[str, ...] = ()
 
 
-BREAKPOINT_PROTOCOL: dict[TurnEndReason, BreakpointSpec] = {
-    TurnEndReason.ROUND: BreakpointSpec(
+BREAKPOINT_PROTOCOL: dict[RoundEndReason, BreakpointSpec] = {
+    RoundEndReason.ROUND: BreakpointSpec(
         Fusion.MAINLINE, ("round_output", "todo_board")
     ),
-    TurnEndReason.QUESTION: BreakpointSpec(
+    RoundEndReason.QUESTION: BreakpointSpec(
         Fusion.ASKER, ("question_text", "options", "asker")
     ),
-    TurnEndReason.CHOICE_BUILD_WAY: BreakpointSpec(
+    RoundEndReason.CHOICE_BUILD_WAY: BreakpointSpec(
         Fusion.RESOLUTION, ("options", "recommendation", "recommendation_reason")
     ),
-    TurnEndReason.CHOICE_PROPOSAL: BreakpointSpec(
+    RoundEndReason.CHOICE_PROPOSAL: BreakpointSpec(
         Fusion.RESOLUTION, ("proposal_summaries",)
     ),
-    TurnEndReason.DOCS_DONE: BreakpointSpec(
+    RoundEndReason.DOCS_DONE: BreakpointSpec(
         Fusion.RESOLUTION, ("deliverables_overview", "options")
     ),
-    TurnEndReason.LOOP_EXHAUSTED: BreakpointSpec(
+    RoundEndReason.LOOP_EXHAUSTED: BreakpointSpec(
         Fusion.FREE_MAINLINE, ("scene", "help_text")
     ),
-    TurnEndReason.FINISHED: BreakpointSpec(
+    RoundEndReason.FINISHED: BreakpointSpec(
         Fusion.TERMINAL, ("delivery_paths",)
     ),
 }
@@ -77,7 +77,7 @@ class PayloadError(Exception):
     """断点 payload 违反受控形状。"""
 
 
-def validate_payload(reason: TurnEndReason, payload: Mapping[str, Any]) -> dict[str, Any]:
+def validate_payload(reason: RoundEndReason, payload: Mapping[str, Any]) -> dict[str, Any]:
     """校验并返回规范化的 payload；违反受控形状时抛 PayloadError。"""
     spec = BREAKPOINT_PROTOCOL[reason]
     data = dict(payload)

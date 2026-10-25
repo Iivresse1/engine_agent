@@ -14,7 +14,7 @@ from project_agent.protocol import (
     BREAKPOINT_PROTOCOL,
     Fusion,
     Role,
-    TurnEndReason,
+    RoundEndReason,
 )
 
 MAINLINE_KEY = "actor_messages"
@@ -26,12 +26,12 @@ _PRIVATE_KEY_BY_ROLE: dict[Role, str] = {
 }
 
 
-def _reason_of(state: Mapping[str, Any]) -> TurnEndReason | None:
+def _reason_of(state: Mapping[str, Any]) -> RoundEndReason | None:
     raw = state.get("turn_end_reason")
     if raw is None:
         return None
     try:
-        return TurnEndReason(raw)
+        return RoundEndReason(raw)
     except ValueError:
         return None
 

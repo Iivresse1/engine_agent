@@ -8,41 +8,41 @@ from project_agent.protocol import (
     BREAKPOINT_PROTOCOL,
     Fusion,
     PayloadError,
-    TurnEndReason,
+    RoundEndReason,
     validate_payload,
 )
 
 VALID_PAYLOADS = {
-    TurnEndReason.ROUND: {"round_output": "本轮产出概览", "todo_board": ["pending: 搭骨架"]},
-    TurnEndReason.QUESTION: {
+    RoundEndReason.ROUND: {"round_output": "本轮产出概览", "todo_board": ["pending: 搭骨架"]},
+    RoundEndReason.QUESTION: {
         "question_text": "你想用什么构建方式？",
         "options": ["对话", "轻 grill", "简化文档", "完整文档"],
         "asker": "actor",
     },
-    TurnEndReason.CHOICE_BUILD_WAY: {
+    RoundEndReason.CHOICE_BUILD_WAY: {
         "options": ["way1", "way2", "way3", "way4"],
         "recommendation": "way3",
         "recommendation_reason": "个人作品有沉淀不臃肿",
     },
-    TurnEndReason.CHOICE_PROPOSAL: {
+    RoundEndReason.CHOICE_PROPOSAL: {
         "proposal_summaries": ["方案A", "方案B", "方案C"],
     },
-    TurnEndReason.DOCS_DONE: {
+    RoundEndReason.DOCS_DONE: {
         "deliverables_overview": "README/TODO/目录树",
         "options": ["构建 demo", "自定义答案"],
     },
-    TurnEndReason.LOOP_EXHAUSTED: {
+    RoundEndReason.LOOP_EXHAUSTED: {
         "scene": "主环计数=5；todos 3 项未清",
         "help_text": "请人工接管",
     },
-    TurnEndReason.FINISHED: {
+    RoundEndReason.FINISHED: {
         "delivery_paths": {"backup": "backup/", "clean": "clean/"},
     },
 }
 
 
 def test_protocol_covers_all_seven_reasons():
-    assert {r.value for r in TurnEndReason} == {
+    assert {r.value for r in RoundEndReason} == {
         "round",
         "question",
         "choice:build_way",
@@ -51,34 +51,34 @@ def test_protocol_covers_all_seven_reasons():
         "loop_exhausted",
         "finished",
     }
-    assert set(BREAKPOINT_PROTOCOL) == set(TurnEndReason)
+    assert set(BREAKPOINT_PROTOCOL) == set(RoundEndReason)
 
 
 @pytest.mark.parametrize(
     ("reason", "expected_fusion"),
     [
-        (TurnEndReason.ROUND, Fusion.MAINLINE),
-        (TurnEndReason.QUESTION, Fusion.ASKER),
-        (TurnEndReason.CHOICE_BUILD_WAY, Fusion.RESOLUTION),
-        (TurnEndReason.CHOICE_PROPOSAL, Fusion.RESOLUTION),
-        (TurnEndReason.DOCS_DONE, Fusion.RESOLUTION),
-        (TurnEndReason.LOOP_EXHAUSTED, Fusion.FREE_MAINLINE),
-        (TurnEndReason.FINISHED, Fusion.TERMINAL),
+        (RoundEndReason.ROUND, Fusion.MAINLINE),
+        (RoundEndReason.QUESTION, Fusion.ASKER),
+        (RoundEndReason.CHOICE_BUILD_WAY, Fusion.RESOLUTION),
+        (RoundEndReason.CHOICE_PROPOSAL, Fusion.RESOLUTION),
+        (RoundEndReason.DOCS_DONE, Fusion.RESOLUTION),
+        (RoundEndReason.LOOP_EXHAUSTED, Fusion.FREE_MAINLINE),
+        (RoundEndReason.FINISHED, Fusion.TERMINAL),
     ],
-    ids=lambda x: x.value if isinstance(x, TurnEndReason) else x.value,
+    ids=lambda x: x.value if isinstance(x, RoundEndReason) else x.value,
 )
 def test_fusion_targets_match_spec_table(reason, expected_fusion):
     assert BREAKPOINT_PROTOCOL[reason].fusion is expected_fusion
 
 
-@pytest.mark.parametrize("reason", list(TurnEndReason), ids=lambda r: r.value)
+@pytest.mark.parametrize("reason", list(RoundEndReason), ids=lambda r: r.value)
 def test_valid_payload_passes(reason):
     payload = VALID_PAYLOADS[reason]
     result = validate_payload(reason, payload)
     assert result == payload
 
 
-@pytest.mark.parametrize("reason", list(TurnEndReason), ids=lambda r: r.value)
+@pytest.mark.parametrize("reason", list(RoundEndReason), ids=lambda r: r.value)
 def test_missing_required_field_rejected(reason):
     entry = BREAKPOINT_PROTOCOL[reason]
     field = entry.required_payload_fields[0]
@@ -88,10 +88,10 @@ def test_missing_required_field_rejected(reason):
 
 
 def test_unknown_payload_field_rejected():
-    payload = dict(VALID_PAYLOADS[TurnEndReason.ROUND])
+    payload = dict(VALID_PAYLOADS[RoundEndReason.ROUND])
     payload["surprise"] = "不在受控形状内"
     with pytest.raises(PayloadError):
-        validate_payload(TurnEndReason.ROUND, payload)
+        validate_payload(RoundEndReason.ROUND, payload)
 
 
 def test_dashboard_fields_cover_spec_contract():

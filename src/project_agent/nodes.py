@@ -33,7 +33,7 @@ from project_agent.onboarding import (
     next_unset_field,
     question_for,
 )
-from project_agent.protocol import Role, TurnEndReason, validate_payload
+from project_agent.protocol import Role, RoundEndReason, validate_payload
 from project_agent.routing import _todos_all_completed, derive_actor_config
 from project_agent.scopes import rule_for, tools_for_scope
 from project_agent.shared_docs import SharedDocs, align_guidance_read, guidance_gate
@@ -106,14 +106,14 @@ def _choice_breakpoint(
     recommendation: str, reason: str
 ) -> dict[str, Any]:
     payload = validate_payload(
-        TurnEndReason.CHOICE_BUILD_WAY,
+        RoundEndReason.CHOICE_BUILD_WAY,
         {
             "options": list(BUILD_WAY_OPTIONS),
             "recommendation": recommendation,
             "recommendation_reason": reason[:20],
         },
     )
-    return {"turn_end_reason": TurnEndReason.CHOICE_BUILD_WAY.value, "turn_end_payload": payload}
+    return {"turn_end_reason": RoundEndReason.CHOICE_BUILD_WAY.value, "turn_end_payload": payload}
 
 
 def _latest_human_text(state: Mapping[str, Any]) -> str | None:
@@ -137,10 +137,10 @@ def _first_human_text(state: Mapping[str, Any]) -> str | None:
 def _round_end(round_output: str, state: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """写 round 断点：轮产出 + todo 板（spec 断点协议表 round 行 payload）。"""
     payload = validate_payload(
-        TurnEndReason.ROUND,
+        RoundEndReason.ROUND,
         {"round_output": round_output, "todo_board": _todo_board(state)},
     )
-    return {"turn_end_reason": TurnEndReason.ROUND.value, "turn_end_payload": payload}
+    return {"turn_end_reason": RoundEndReason.ROUND.value, "turn_end_payload": payload}
 
 
 def _todo_board(state: Mapping[str, Any] | None) -> list[str]:
@@ -160,7 +160,7 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
     if hint and spec.novice_hint:
         text = f"{text}{spec.novice_hint}"
     payload = validate_payload(
-        TurnEndReason.QUESTION,
+        RoundEndReason.QUESTION,
         {
             "question_text": text,
             "options": list(spec.options),
@@ -168,7 +168,7 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
         },
     )
     return {
-        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "turn_end_reason": RoundEndReason.QUESTION.value,
         "turn_end_payload": payload,
         "awaiting_input_from": Role.ACTOR.value,
     }
@@ -196,7 +196,7 @@ def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
     def _unset(dashboard: Mapping[str, Any]) -> str | None:
         return next_unset_field(dashboard)
 
-    if state.get("turn_end_reason") == TurnEndReason.QUESTION.value:
+    if state.get("turn_end_reason") == RoundEndReason.QUESTION.value:
         current = _unset(state)
         answer = _latest_human_text(state)
         if current is not None and answer is not None:
@@ -295,13 +295,13 @@ def make_build_ways_node(model: Any = None):
                     **_round_end(f"构建方式已定：{way}", state),
                 }
             # 不可解释：清空通道 + 复用上轮 payload 重发 choice（可重入零副作用）
-            payload = _reuse_payload(state, TurnEndReason.CHOICE_BUILD_WAY)
+            payload = _reuse_payload(state, RoundEndReason.CHOICE_BUILD_WAY)
             if payload is not None and _recommended_from_payload(payload) is None:
                 payload = None  # recommendation 不可解释 → 退静态推荐
             if payload is not None:
                 return {
                     "resolution_inputs": [],
-                    "turn_end_reason": TurnEndReason.CHOICE_BUILD_WAY.value,
+                    "turn_end_reason": RoundEndReason.CHOICE_BUILD_WAY.value,
                     "turn_end_payload": payload,
                 }
             return {"resolution_inputs": [], **_static_choice()}
@@ -350,11 +350,11 @@ def _parse_proposals(text: str) -> list[str]:
 def _proposal_breakpoint(proposal_set: list[str]) -> dict[str, Any]:
     """choice:proposal 断点：proposal_summaries 受控形状。"""
     payload = validate_payload(
-        TurnEndReason.CHOICE_PROPOSAL, {"proposal_summaries": list(proposal_set)}
+        RoundEndReason.CHOICE_PROPOSAL, {"proposal_summaries": list(proposal_set)}
     )
     return {
         "proposal_set": list(proposal_set),
-        "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+        "turn_end_reason": RoundEndReason.CHOICE_PROPOSAL.value,
         "turn_end_payload": payload,
     }
 
@@ -438,11 +438,11 @@ def make_proposals_node(model: Any = None):
                     **_round_end(f"方案已选定：{summary}", state),
                 }
             # 无匹配：清空通道 + 复用上轮 payload 重发（零 model 调用）
-            payload = _reuse_payload(state, TurnEndReason.CHOICE_PROPOSAL)
+            payload = _reuse_payload(state, RoundEndReason.CHOICE_PROPOSAL)
             if payload is not None:
                 return {
                     "resolution_inputs": [],
-                    "turn_end_reason": TurnEndReason.CHOICE_PROPOSAL.value,
+                    "turn_end_reason": RoundEndReason.CHOICE_PROPOSAL.value,
                     "turn_end_payload": payload,
                 }
             return {
@@ -1024,7 +1024,7 @@ def _deliverables_overview(state: Mapping[str, Any]) -> str:
 
 def _docs_done_payload(state: Mapping[str, Any]) -> dict[str, Any]:
     return validate_payload(
-        TurnEndReason.DOCS_DONE,
+        RoundEndReason.DOCS_DONE,
         {
             "deliverables_overview": _deliverables_overview(state),
             "options": list(_DOCS_DONE_OPTIONS),
@@ -1033,7 +1033,7 @@ def _docs_done_payload(state: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _reuse_payload(
-    state: Mapping[str, Any], reason: TurnEndReason
+    state: Mapping[str, Any], reason: RoundEndReason
 ) -> dict[str, Any] | None:
     """复用上轮 turn_end_payload（校验通过才复用；重发断点零副作用）。
 
@@ -1078,15 +1078,15 @@ def docs_done_node(state: Mapping[str, Any]) -> dict[str, Any]:
             or text.strip() == "1"
         ):
             return {"demo_phase": "building", "resolution_inputs": []}
-        payload = _reuse_payload(state, TurnEndReason.DOCS_DONE) or _docs_done_payload(state)
+        payload = _reuse_payload(state, RoundEndReason.DOCS_DONE) or _docs_done_payload(state)
         return {
             "resolution_inputs": [],
-            "turn_end_reason": TurnEndReason.DOCS_DONE.value,
+            "turn_end_reason": RoundEndReason.DOCS_DONE.value,
             "turn_end_payload": payload,
         }
 
     return {
-        "turn_end_reason": TurnEndReason.DOCS_DONE.value,
+        "turn_end_reason": RoundEndReason.DOCS_DONE.value,
         "turn_end_payload": _docs_done_payload(state),
     }
 
@@ -1300,12 +1300,12 @@ def make_check_node(
 
         if result["output_clean"]:
             payload = validate_payload(
-                TurnEndReason.FINISHED,
+                RoundEndReason.FINISHED,
                 {"delivery_paths": result["delivery_paths"]},
             )
             return {
                 "output_clean": True,
-                "turn_end_reason": TurnEndReason.FINISHED.value,
+                "turn_end_reason": RoundEndReason.FINISHED.value,
                 "turn_end_payload": payload,
             }
 
@@ -1314,7 +1314,7 @@ def make_check_node(
         detail = _failure_detail(result)
         if loop_count >= 5:
             payload = validate_payload(
-                TurnEndReason.LOOP_EXHAUSTED,
+                RoundEndReason.LOOP_EXHAUSTED,
                 {
                     "scene": f"终检环计数 5；失败明细：{detail}",
                     "help_text": "终检连续 5 轮未通过，请人工接管：核对交付物或调整任务简报。",
@@ -1322,7 +1322,7 @@ def make_check_node(
             )
             return {
                 "final_check_loop_count": loop_count,
-                "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
+                "turn_end_reason": RoundEndReason.LOOP_EXHAUSTED.value,
                 "turn_end_payload": payload,
             }
 
@@ -1347,7 +1347,7 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
     12：终检环计数入 scene（终检耗尽路径可见）；可重入——上轮已写
     loop_exhausted 断点（check 节点 5 计时含失败明细版）则零改写保留。
     """
-    if state.get("turn_end_reason") == TurnEndReason.LOOP_EXHAUSTED.value:
+    if state.get("turn_end_reason") == RoundEndReason.LOOP_EXHAUSTED.value:
         return {}  # 已写耗尽断点（12 check 版含失败明细）——保留不覆盖
     todos = state.get("todos") or []
     done = sum(
@@ -1359,7 +1359,7 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
     demo_count = int(state.get("demo_loop_count") or 0)
     final_check_count = int(state.get("final_check_loop_count") or 0)
     payload = validate_payload(
-        TurnEndReason.LOOP_EXHAUSTED,
+        RoundEndReason.LOOP_EXHAUSTED,
         {
             "scene": (
                 f"主环计数 {count}；demo 环计数 {demo_count}；"
@@ -1370,7 +1370,7 @@ def loop_exhausted_node(state: Mapping[str, Any]) -> dict[str, Any]:
         },
     )
     return {
-        "turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value,
+        "turn_end_reason": RoundEndReason.LOOP_EXHAUSTED.value,
         "turn_end_payload": payload,
     }
 

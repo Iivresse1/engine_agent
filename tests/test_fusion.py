@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import HumanMessage
 
 from project_agent.fusion import _PRIVATE_KEY_BY_ROLE, fusion_update
-from project_agent.protocol import BREAKPOINT_PROTOCOL, Fusion, Role, TurnEndReason
+from project_agent.protocol import BREAKPOINT_PROTOCOL, Fusion, Role, RoundEndReason
 
 
 def _fused_text(update: dict) -> tuple[str, str]:
@@ -19,7 +19,7 @@ def _fused_text(update: dict) -> tuple[str, str]:
 
 
 def test_round_fuses_into_mainline():
-    state = {"turn_end_reason": TurnEndReason.ROUND.value}
+    state = {"turn_end_reason": RoundEndReason.ROUND.value}
     key, text = _fused_text(fusion_update(state, "继续"))
     assert key == "actor_messages"
     assert text == "继续"
@@ -27,7 +27,7 @@ def test_round_fuses_into_mainline():
 
 def test_question_fuses_into_asker_private_key():
     state = {
-        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "turn_end_reason": RoundEndReason.QUESTION.value,
         "awaiting_input_from": "demo",
     }
     key, _ = _fused_text(fusion_update(state, "选 B"))
@@ -36,7 +36,7 @@ def test_question_fuses_into_asker_private_key():
 
 def test_question_with_unknown_role_falls_back_to_mainline():
     state = {
-        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "turn_end_reason": RoundEndReason.QUESTION.value,
         "awaiting_input_from": "someone-new",
     }
     key, _ = _fused_text(fusion_update(state, "答"))
@@ -44,7 +44,7 @@ def test_question_with_unknown_role_falls_back_to_mainline():
 
 
 def test_question_without_asker_defaults_to_actor():
-    state = {"turn_end_reason": TurnEndReason.QUESTION.value}
+    state = {"turn_end_reason": RoundEndReason.QUESTION.value}
     key, _ = _fused_text(fusion_update(state, "答"))
     assert key == "actor_messages"
 
@@ -54,9 +54,9 @@ def test_resolution_reasons_feed_resolution_channel():
 
 
     for reason in (
-        TurnEndReason.CHOICE_BUILD_WAY,
-        TurnEndReason.CHOICE_PROPOSAL,
-        TurnEndReason.DOCS_DONE,
+        RoundEndReason.CHOICE_BUILD_WAY,
+        RoundEndReason.CHOICE_PROPOSAL,
+        RoundEndReason.DOCS_DONE,
     ):
         update = fusion_update({"turn_end_reason": reason.value}, "自由输入")
         assert update == {"resolution_inputs": ["自由输入"]}, reason
@@ -65,7 +65,7 @@ def test_resolution_reasons_feed_resolution_channel():
 
 def test_loop_exhausted_still_fuses_into_mainline():
     key, _ = _fused_text(
-        fusion_update({"turn_end_reason": TurnEndReason.LOOP_EXHAUSTED.value}, "自由输入")
+        fusion_update({"turn_end_reason": RoundEndReason.LOOP_EXHAUSTED.value}, "自由输入")
     )
     assert key == "actor_messages"
 
@@ -80,7 +80,7 @@ def test_private_key_by_role_is_keyed_by_role_enum():
 def test_question_accepts_role_enum_as_asker():
     """REPL 侧 awaiting_input_from 写 Role 时同样命中私有 key。"""
     state = {
-        "turn_end_reason": TurnEndReason.QUESTION.value,
+        "turn_end_reason": RoundEndReason.QUESTION.value,
         "awaiting_input_from": Role.DEMO.value,
     }
     key, _ = _fused_text(fusion_update(state, "答"))
@@ -88,7 +88,7 @@ def test_question_accepts_role_enum_as_asker():
 
 
 def test_finished_is_terminal_no_fusion():
-    state = {"turn_end_reason": TurnEndReason.FINISHED.value}
+    state = {"turn_end_reason": RoundEndReason.FINISHED.value}
     assert fusion_update(state, "还想说话") == {}
 
 

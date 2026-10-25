@@ -130,7 +130,7 @@ def test_repl_compact_updates_last_state_messages(workspace):
     host = ReplHost(app, io, "t-state", cheap_model=cheap, shared_docs=docs)
     host._last_state = {"actor_messages": _seeded_history(), "notes_version": 0}
     host.run()
-    # /compact 后 "继续" 走 _run_turn → fusion_update 产出新 HumanMessage，
+    # /compact 后 "继续" 走 _run_round → fusion_update 产出新 HumanMessage，
     # 与压缩批（RemoveMessage+头部单包）一起进 update["actor_messages"]：
     # 批内含头部单包 AIMessage（id 复用首条）——在批序列里验证。
     msgs = app.last_update["actor_messages"]

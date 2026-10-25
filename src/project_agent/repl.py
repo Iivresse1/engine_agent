@@ -94,7 +94,7 @@ class ReplHost:
                 if self._dispatch(text):
                     return
                 continue
-            self._run_turn(text)
+            self._run_round(text)
 
     def _dispatch(self, text: str) -> bool:
         """斜杠命令前缀匹配分发（零 LLM）。返回 True 表示退出。"""
@@ -220,7 +220,7 @@ class ReplHost:
         covered = sum(end - start + 1 for start, end in packs)
         self._io.write_line(f"已压缩 {covered} 轮（{len(packs)} 包）；磁盘【R#】原文不受影响。")
 
-    def _run_turn(self, text: str) -> None:
+    def _run_round(self, text: str) -> None:
         # 11：demo 构建中的输入先过三层混合路由（斜杠已在 run() 前分流）
         if self._last_state.get("demo_phase") == "building":
             route = route_input(
@@ -230,7 +230,7 @@ class ReplHost:
             )
             if route == "error_return":
                 # 报错回传：融合进 demo_messages 进修复环；demo 环计数++（封顶 5）
-                self._invoke_turn(
+                self._invoke_round(
                     {
                         "demo_messages": [HumanMessage(content=text)],
                         "demo_loop_count": int(
@@ -255,9 +255,9 @@ class ReplHost:
             merged_batch.extend(update.get("actor_messages") or [])
             update = dict(pending)
             update["actor_messages"] = merged_batch
-        self._invoke_turn(update)
+        self._invoke_round(update)
 
-    def _invoke_turn(self, update: dict[str, Any]) -> None:
+    def _invoke_round(self, update: dict[str, Any]) -> None:
         result = dict(self._app.invoke(update, self._config))
         self._last_state = result
 
