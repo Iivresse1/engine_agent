@@ -10,6 +10,15 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
+## 票收口前对账
+
+改动契约面的票，收口 Comments 必须包含 spec 回填，表与代码不一致 = 票未收口：
+
+- **Dashboard 字段**（增/删/改名）：同步 spec 状态契约字段表 +
+  `tests/test_breakpoint_protocol.py::test_dashboard_fields_cover_spec_contract`
+- **入口路由 / turn-end / fusion 语义**：同步 spec 路由真值表；改道不加行
+  是契约失守（11/12 票实测：终局评审才发现真值表缺 docs_done 行）
+
 ## When a skill says "publish to the issue tracker"
 
 Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
