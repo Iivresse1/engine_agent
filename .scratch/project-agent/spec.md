@@ -117,7 +117,7 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 
 - 各角色消息历史留私有 state key，永不进全局；全局 state（仪表盘）的字段清单与形状以"状态契约"节的**仪表盘字段表**为准（v1.1 唯一权威版），任何消息转储不得入内
 - 共享文档区 = 磁盘项目文档（带【R#】）+ NOTES.md；磁盘为事实来源（ADR-0004），Store 只承担 final_report 长期记忆（跨线程 KV）
-- 【R#】切片：ReadProjectDocs 按轮次前缀检索；NotepadRead 同套机制
+- 【R#】切片：ReadProjectDocs 按轮次前缀检索；NotepadRead 同套机制；每轮生成物全文落 BUILD_LOG.md（06 票实现载体，评审回填 v1.5——原表述"项目文档带【R#】"的轮转储部分即此文件）
 - 版本号排序：notes_version（NotepadAdd 后自增）/ guidance_read_version（AskAgent 消费后对齐）；图内 guidance 通道入口检查版本差才注入；REPL 旁路直读磁盘天然最新
 
 ### 状态契约（v1.1 增补：图状态设计）
@@ -195,9 +195,10 @@ start → ask_tasks → build_ways → guidance_trigger → conditional_edge（8
 | todos 为空 | planner |
 | is_docs_finished=false 且 todos 未清 | context_assembler（主环） |
 | todos 清且 task_complete=false | planner（重新规划，主环计数++） |
-| is_docs_finished=true 且 demo_phase=undecided | demo 决议 |
+| task_complete=true 且 demo_phase 未设 | docs_done 决议（11 票改道；原行"task_complete=true→finalizer"由 demo 决议先行，skipped/done 后入终检） |
+| demo_phase=="skipped" 且 is_docs_finished=true | finalizer（12 票入口行 8） |
 | 任一环计数=5 | loop_exhausted 断点 |
-| task_complete=true | finalizer → check_proper_output |
+| demo_phase=="building" 且 task_complete=true | demo_agent（报错回传环入口） |
 
 **断点协议**（turn_end_reason × payload × 融合目标——主接缝测试的断言对象）：
 

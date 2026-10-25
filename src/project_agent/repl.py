@@ -26,7 +26,22 @@ _ASK_OUTSIDE_WORKFLOW = "仅项目工作流内可用"
 _ASK_NOT_WIRED = "旁路未接线（需 model）"
 
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
-_COMMANDS = ("/help", "/status", "/compact", "/ask-for-help", "/exit")
+_COMMANDS = ("/help", "/status", "/compact", "/ask-for-help", "/skills", "/mode", "/exit")
+
+# /mode 决策模式词表（Q19：AI 自动审核 / 全权人工；knobs.from_decision_mode 同源）
+_MODE_LABELS: dict[str, str] = {
+    "ai_review": "ai_review（AI 自动审核）",
+    "manual": "manual（全权人工）",
+}
+_MODE_ALIASES: dict[str, str] = {
+    "ai_review": "ai_review",
+    "ai": "ai_review",
+    "ai 自动审核": "ai_review",
+    "自动": "ai_review",
+    "manual": "manual",
+    "全权人工": "manual",
+    "人工": "manual",
+}
 
 _STATUS_FIELDS = (
     "task_brief",
@@ -99,8 +114,67 @@ class ReplHost:
         if command == "/ask-for-help":
             self._ask_for_help(text)
             return False
+        if command == "/mode":
+            self._mode(text)
+            return False
+        if command == "/skills":
+            self._skills(text)
+            return False
         self._io.write_line(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
+
+    def _mode(self, text: str) -> None:
+        """/mode：查/改决策模式（用户故事 3——运行时配置入口）。
+
+        无参 → 显示当前与可选；有效值（ai_review|manual|中文别名）→ 更新
+        REPL 持有态的 decision_mode（ShellTool 审批档接线票消费）；无效 → 提示。
+        """
+        current = str(self._last_state.get("decision_mode") or "")
+        raw_arg = text[len("/mode"):].strip()
+        arg = raw_arg.lower()
+        if not arg:
+            options = "、".join(_MODE_LABELS.values())
+            self._io.write_line(f"当前决策模式：{current or '未设置'}。可选：{options}")
+            return
+        new_mode = _MODE_ALIASES.get(arg) or _MODE_ALIASES.get(raw_arg)
+        if new_mode is None:
+            options = "、".join(_MODE_LABELS.values())
+            self._io.write_line(f"未识别模式 {raw_arg!r}。当前：{current or '未设置'}。可选：{options}")
+            return
+        self._last_state["decision_mode"] = new_mode
+        self._io.write_line(f"决策模式已更新：{new_mode}")
+
+    def _skills(self, text: str) -> None:
+        """/skills：查/改技能包清单（用户故事 3——运行时配置入口）。
+
+        无参 → 列出已选包；add {name} → 追加（去重）；remove {name} → 移除。
+        """
+        packs = list(self._last_state.get("skill_packs") or [])
+        arg = text[len("/skills"):].strip()
+        if not arg:
+            self._io.write_line(
+                f"已选技能包：{', '.join(packs) if packs else '（无）'}"
+            )
+            return
+        sub, _, name = arg.partition(" ")
+        if sub == "add" and name.strip():
+            pack = name.strip()
+            if pack not in packs:
+                packs.append(pack)
+                self._last_state["skill_packs"] = packs
+                self._io.write_line(f"已添加技能包：{pack}")
+            else:
+                self._io.write_line(f"技能包 {pack} 已在清单中。")
+        elif sub == "remove" and name.strip():
+            pack = name.strip()
+            if pack in packs:
+                packs.remove(pack)
+                self._last_state["skill_packs"] = packs
+                self._io.write_line(f"已移除技能包：{pack}")
+            else:
+                self._io.write_line(f"技能包 {pack} 不在清单中。")
+        else:
+            self._io.write_line("用法：/skills [add|remove] {包名}")
 
     def _ask_for_help(self, text: str) -> None:
         """10 票旁路：/ask-for-help {question}——AskBypass 独立历史作答。

@@ -292,17 +292,9 @@ def make_build_ways_node(model: Any = None):
                     **_round_end(f"构建方式已定：{way}", state),
                 }
             # 不可解释：清空通道 + 复用上轮 payload 重发 choice（可重入零副作用）
-            last_payload = state.get("turn_end_payload")
-            reuse = _recommended_from_payload(last_payload) is not None
-            if reuse and isinstance(last_payload, Mapping):
-                try:
-                    payload = validate_payload(
-                        TurnEndReason.CHOICE_BUILD_WAY, dict(last_payload)
-                    )
-                except Exception:
-                    payload = None
-            else:
-                payload = None
+            payload = _reuse_payload(state, TurnEndReason.CHOICE_BUILD_WAY)
+            if payload is not None and _recommended_from_payload(payload) is None:
+                payload = None  # recommendation 不可解释 → 退静态推荐
             if payload is not None:
                 return {
                     "resolution_inputs": [],
@@ -418,18 +410,6 @@ def make_proposals_node(model: Any = None):
         parsed = _parse_proposals(str(result.text))
         return parsed if parsed else list(_FALLBACK_PROPOSALS)
 
-    def _reuse_payload(state: Mapping[str, Any]) -> dict[str, Any] | None:
-        """复用上轮 turn_end_payload（校验通过才复用；同 build_ways 模式）。"""
-        last_payload = state.get("turn_end_payload")
-        if not isinstance(last_payload, Mapping):
-            return None
-        try:
-            return validate_payload(
-                TurnEndReason.CHOICE_PROPOSAL, dict(last_payload)
-            )
-        except Exception:
-            return None
-
     def proposals_node(
         state: Mapping[str, Any], config: Optional[Mapping[str, Any]] = None
     ) -> dict[str, Any]:
@@ -455,7 +435,7 @@ def make_proposals_node(model: Any = None):
                     **_round_end(f"方案已选定：{summary}", state),
                 }
             # 无匹配：清空通道 + 复用上轮 payload 重发（零 model 调用）
-            payload = _reuse_payload(state)
+            payload = _reuse_payload(state, TurnEndReason.CHOICE_PROPOSAL)
             if payload is not None:
                 return {
                     "resolution_inputs": [],
@@ -1049,13 +1029,19 @@ def _docs_done_payload(state: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def _reuse_docs_payload(state: Mapping[str, Any]) -> dict[str, Any] | None:
-    """复用上轮 docs_done payload（校验通过才复用；同 build_ways 模式）。"""
+def _reuse_payload(
+    state: Mapping[str, Any], reason: TurnEndReason
+) -> dict[str, Any] | None:
+    """复用上轮 turn_end_payload（校验通过才复用；重发断点零副作用）。
+
+    三处决议节点共用（choice:build_way / choice:proposal / docs_done）：
+    不可解释输入 → 复用上轮已验证 payload 重发，零 model 调用（可重入）。
+    """
     last_payload = state.get("turn_end_payload")
     if not isinstance(last_payload, Mapping):
         return None
     try:
-        return validate_payload(TurnEndReason.DOCS_DONE, dict(last_payload))
+        return validate_payload(reason, dict(last_payload))
     except Exception:
         return None
 
@@ -1089,7 +1075,7 @@ def docs_done_node(state: Mapping[str, Any]) -> dict[str, Any]:
             or text.strip() == "1"
         ):
             return {"demo_phase": "building", "resolution_inputs": []}
-        payload = _reuse_docs_payload(state) or _docs_done_payload(state)
+        payload = _reuse_payload(state, TurnEndReason.DOCS_DONE) or _docs_done_payload(state)
         return {
             "resolution_inputs": [],
             "turn_end_reason": TurnEndReason.DOCS_DONE.value,
@@ -1156,7 +1142,7 @@ def make_demo_agent_node(
     - 响应含 "运行：{cmd}" → round_output 追加"运行权在用户（ADR-0003）：
       请自行执行 {cmd}"——**绝不调用 ShellTool**（运行权留人手）
     - 报错修复：demo_messages 尾部报错文本进任务行"报错上下文"，每轮一个
-      修复回合（计数 REPL 融合时自增，条件边 _after_demo 读）
+      修复循环（计数 REPL 融合时自增，条件边 _after_demo 读）
     """
 
     def demo_agent_node(

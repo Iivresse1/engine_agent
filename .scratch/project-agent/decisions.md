@@ -200,6 +200,8 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 10/11 二派双双交付但均死于汇报前（10 票全 5 切片+合并完成仅未发汇报——Lead 查 worktree 发现 682 绿直接采用；11 票 4 切片完成死于切片 3 提交后——Lead 提交遗留测试+融合 10 的 /ask-for-help 与指引块入 11 分支）。合并 baa66ea（733 绿）。**10 票语义注记**：assembler（09）与指引（10）共用 guidance_read_version 门——assembler 先消费，图级指引只在 actor 同轮自增 NOTE 时触发；未裁定门归属前按字面实现。**11 票接口扩展**：with_compression +messages_key（demo 挂点 demo_messages）；Role.+DEMO_AGENT；SharedDocs.+write_any；routing 行 7→DOCS_DONE（12 票接管终态）。**前沿解锁：12 终检管线（最后一张实现票）**。
 - 12 票完成（合并 08bc4b7，791 绿，+58）：final_check 终检管线/memory_store/finalizer+check 节点/终检环。**拓扑终局**：DEMO_AGENT→FINALIZER（demo 后同轮进终检）；入口行 8=skipped 直通终检。**全部 12 张实现票完成（02–12，01 为先行骨架）——进入终局 code-review 收口**。剩余异议：终检新环 planner 模板板覆盖修复 todo（修复项持续性）；guidance_read_version 门归属（assembler vs 指引通道）——两项留 v1.5 裁定。
 
+**Q62（终局 code-review 两轴，2026-10-25）**：架构四红线全守住（零 interrupt/磁盘共享/demo 不运行/私有 key 隔离）+ 三张契约表全符（7 reason payload/融合目标、仪表盘 26 字段、真值表行序——两处字面不符属 11/12 有据改道）。**已修**：①术语（修复回合→循环）；②三处 payload 复用统一 _reuse_payload(state, reason)；③**/mode、/skills 运行时命令补齐**（用户故事 3 票拆分漏项——/mode 查改决策模式含中文别名，/skills add/remove 查改技能包，+11 测试，802 绿）；④spec v1.5 回填（入口路由真值表随 11/12 改道更新——"表即契约失守"批评成立；BUILD_LOG.md 载体记档）。**v1.5 背欠清单（接线票，非实现缺陷）**：工具执行回路（actor 无工具调用环，全靠文本指令桥）/decision_mode·skill_packs 图内零消费者/AskUserQuestion 工具本体/TodoWrite 私有面板 key/旁路 checkpointer 持久化/current_scope actor 写者/verify_link 接入指引/final_report 检索注入 ask_tasks/ask 档 question 断点循环/压缩挂点 finalizer+旁路+指引/finalizer 后 LangSmith 正式 Store。**Standards 轴 turn 命名族裁定**：字段名 spec 钉定不改；TurnEndReason 枚举名/_run_turn 方法名可改但涉及 12 票测试面，收益/成本比低——记档不修。
+
 ## 挂起 / 待办
 
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
