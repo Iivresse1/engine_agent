@@ -286,6 +286,16 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **票 16 改为 in_progress**：三裁从"未定需先裁"挪到"已裁三点"，片 1 标记为本片；片 4 改为"产物下载与 engine 并联"。
 - 未做（后续片）：前端 Ink 骨架（片 2）、面板按键（片 3）、产物下载与 engine 并联（片 4）、收口（片 5）。
 
+**Q71 续（UX-3 片 2：Ink 前端骨架落地，2026-10-26 上午）**：片 1 提交后直接做片 2，前后端真实联调跑通。
+- **`frontend/` 新目录**（TS + React 19 + Ink 8 + ws，Node v24）：`src/protocol.ts`（六类下行解析，形状严格镜像后端 `messages.py`，**数组不得冒充对象**）/ `src/handshake.ts`（随机端口发现：六字段解析、pid 存活、协议版本兼容）/ `src/client.ts`（WebSocket 连接与消息桥）/ `src/width.ts`（东亚字宽，**显式禁用 String.length**）/ `src/App.tsx`（渲染队列 + 按键采集，不持有业务状态）/ `src/main.tsx`（入口，连不上即降级提示）。
+- **职责边界的代码化**：前端拿到 `round_end` 直接绘制后端给的 `lines`，**不重排文案**——否则两处文案必然漂移（spec『文案可读性契约』的跨端推论）。
+- **测试 12 例（vitest）**：协议解析 6（六类下行、坏 JSON、未知 type、缺字段、lines 含非串、payload 为数组）+ 握手 4（往返、缺字段、版本兼容、pid 存活）+ 字宽 2（全角 2 列、length 与显示宽度不等哨兵）。
+- **修掉一处真缺陷（造红转绿）**：`parseDownMessage` 对 `payload: []` 曾经放行（`typeof [] === "object"`），与后端 `MessageError` 的严格性不一致；补 `Array.isArray` 拒绝后转绿。
+- **真实联调冒烟**：后端起在**随机端口 57297**（握手文件 `thread=t-frontend`）→ 前端读握手文件发现并连上 → `input → round_end → choice:build_way → farewell` 全通；终端路径同时保持八项断言全绿。
+- **工具链事实**：本机无 `bun`、无全局 `pnpm`；用 DSH 提供的 node/pnpm 路径（`pnpm.mjs`）。`pnpm run typecheck/build` 会被 esbuild 构建审批阻断，改用 `node node_modules/typescript/bin/tsc` 直接调用（已在 `package.json` 加 `pnpm.onlyBuiltDependencies` 白名单）。`vitest --reporter=basic` 在 vitest 5 下不可用，改默认 reporter。
+- **`.gitignore` 补**：`frontend/node_modules/`、`frontend/dist/` 不入库；锁文件 `pnpm-lock.yaml` 入库保证可复现。
+- **未做**：片 3（面板/按键细化）、片 4（产物下载 + engine 并联）、片 5（收口）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）

@@ -19,7 +19,7 @@ Status: ready-for-agent
 | v1.8 | 2026-10-25 | **真模型接线（Q64）**：配置格式定 .env、OpenAI 兼容客户端、运行时一站装配、本地账单实际落账、密钥防推送加固 |
 | v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
 | v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`DOWN_MESSAGES`（6 类下行）+ `UP_MESSAGES`（2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；决议类断点三层渲染修复 |
-| v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）与前端骨架（UX-3）随本版开做 |
+| v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）与前端骨架（UX-3 片 2）随本版落地 |
 
 ## Problem Statement
 
@@ -392,6 +392,8 @@ Status: ready-for-agent
 
 **传输层三条硬约束**（延续协议层）：`transport.py` 只做"收上行 → 调分发 → 发下行"，零业务逻辑；**顶层不得 import 图/节点内部**（AST 哨兵，与 `messages.py` 同法）；后端仍须能在无前端时裸终端运行（同一 `handle_input` 实现，两条消费者）。
 
+**前端骨架（UX-3 片 2，已落地）**：`frontend/` = TS + React 19 + Ink；`src/protocol.ts`（六类下行解析，与后端消息表镜像）/ `handshake.ts`（随机端口发现）/ `client.ts`（WebSocket 连与重连）/ `width.ts`（东亚字宽，**禁用 String.length**）/ `App.tsx`（渲染 + 按键）。前端**只按 type 分派渲染，断点文案直接用后端给的 `lines`，不重排**。测试：`vitest` 覆盖协议解析、握手发现、字宽三块纯函数（12 例）。
+
 ### 路由
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）。
@@ -481,7 +483,7 @@ Status: ready-for-agent
 | 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
 | 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输与握手发现 v2.2 开做（三裁已定） | UX 票 |
-| 前端界面（UX-3） | Ink/React 19 组件、按键、Bun 打包未开票 | UX 票 |
+| 前端界面（UX-3） | Ink 骨架已落（`frontend/`：协议解析/握手发现/字宽/渲染/按键，vitest 12 例）；面板与按键细化、产物下载与 engine 并联未做 | UX 票 |
 | guidance_read_version 门归属 | assembler 先消费 vs 指引通道自消费，未终裁 | 待裁 |
 | planner 模板覆盖修复 todo | 终检环回 planner 会覆盖修复项，持久化未定 | 待裁 |
 | nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做 | 待裁 |

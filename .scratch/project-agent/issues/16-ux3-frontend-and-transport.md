@@ -1,9 +1,15 @@
 # 16: UX-3 前端与传输 —— WebSocket 传输 + Ink 前端 + Bun 打包
 
-**Status:** in_progress（片 1 进行中；三裁已由 Q71 定并回填 spec v2.2）
+**Status:** in_progress（片 1 + 片 2 已落地：传输层 + Ink 骨架，906 后端测试 + 12 前端测试全绿；片 3–5 未完）
 **类型:** UX 实现票（ADR-0005 双运行时）
 **开票:** 2026-10-26
 **依赖:** 15 票（协议消息表 + 翻译层已落）
+
+**实现记（片 1 + 片 2）**：
+- **片 1 传输层**：`transport.py` —— 握手文件（原子写/六字段校验/bool 冒充 int 拦/pid 存活判定/清理）+ `ProtocolServer`（坏 JSON 与不合协议回 notice 不崩）+ `make_serve`（延迟 import websockets）+ `_bound_port`。`repl.py` 抽出 `_emit`/`_notice`/`handle_input`，22 处直写改走消息出口；终端行为逐字不变。后台 906 测试（+24）。
+- **片 2 Ink 骨架**：`frontend/`（TS + React 19 + Ink 8 + ws）——`protocol.ts`/`handshake.ts`/`client.ts`/`width.ts`/`App.tsx`/`main.tsx`；`tsc` 类型与构建零错；`vitest` 12 例（协议解析 6、握手 4、字宽 2）。前端只按 type 渲染、断点文案直用后端 `lines`。
+- **真实联调**：后端起在随机端口 57297，前端读握手文件发现并连上，跑通 `input → round_end → choice:build_way → farewell`。
+- **修掉一处前端校验漏洞**：`payload: []`（数组）曾被 `typeof === "object"` 漏过，与后端 `messages.py` 严格性不一致；已补 `Array.isArray` 拒绝，并造红转绿。
 
 ## 目标
 
