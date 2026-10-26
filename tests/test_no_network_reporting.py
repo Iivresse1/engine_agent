@@ -21,10 +21,20 @@ _NETWORK_MODULES = frozenset(
 )
 
 
+# 惰性导入模块：网络库只允许出现在**函数体内**（用户主动入网动作，非上报路径）。
+#   gui_config.py        —— 14 票「测试连接」按钮（用户点才发生）
+#   frontend_launcher.py —— UX-3 片 4「前端产物首次运行下载」（用户启用前端才发生）
+_LAZY_NETWORK_MODULES = frozenset({"gui_config.py", "frontend_launcher.py"})
+
+
 def _imported_top_levels(tree: ast.AST) -> set[str]:
-    """AST 收集 import 顶层模块名（import x.y → x；from x import y → x）。"""
+    """AST 收集**模块顶层**的 import 模块名（函数体内惰性导入不计）。
+
+    语义钉板：Q39 红线是"不自动上报 + 顶层不 import 网络库"——顶层 import
+    意味着进程一启动就具备外发能力；函数内惰性导入则只在用户主动动作时发生。
+    """
     tops: set[str] = set()
-    for node in ast.walk(tree):
+    for node in tree.body:  # 只走模块顶层，不下潜函数/类体
         if isinstance(node, ast.Import):
             tops.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
@@ -33,29 +43,43 @@ def _imported_top_levels(tree: ast.AST) -> set[str]:
 
 
 def test_ledger_and_audit_modules_import_no_network_libs():
-    """账单/审计模块 import 集不含任何网络上报库（含 LangSmith）。"""
+    """账单/审计模块 import 集不含任何网络上报库（含 LangSmith）。
+
+    这两个模块连函数内也不许有（它们是上报路径的载体本身）。
+    """
     for name in _LEDGER_MODULES:
         tree = ast.parse((SRC / name).read_text(encoding="utf-8"))
-        offenders = _imported_top_levels(tree) & _NETWORK_MODULES
+        anywhere: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                anywhere.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                anywhere.add(node.module.split(".")[0])
+        offenders = anywhere & _NETWORK_MODULES
         assert not offenders, f"{name} 引入网络上报库: {sorted(offenders)}"
 
 
 def test_whole_package_imports_no_network_libs():
     """兜底扫描：整个主包**顶层**零网络上报 import（Q39：账单不外发云端）。
 
-    豁免 gui_config.py（14 票）：测试连接是**用户主动**的入网动作
-    （点按钮才发生），且 httpx 已改惰性导入（_httpx() 函数内）——
-    与账单/审计的"自动外发"红线语义不同；红线对象仍是 ledger/audit。
+    顶层 import = 进程一启动就有外发能力 → 禁止。函数内惰性导入不算
+    （用户主动动作：测试连接 / 前端产物下载）。
     """
     offenders: list[str] = []
     for py in SRC.rglob("*.py"):
-        if py.name == "gui_config.py":
-            continue  # 用户主动测试连接（惰性导入）；非上报路径
         tree = ast.parse(py.read_text(encoding="utf-8"))
         bad = _imported_top_levels(tree) & _NETWORK_MODULES
         if bad:
             offenders.append(f"{py.name}: {sorted(bad)}")
-    assert not offenders, f"主包存在网络上报 import: {offenders}"
+    assert not offenders, f"主包顶层存在网络上报 import: {offenders}"
+
+
+def test_lazy_network_modules_do_not_import_at_top_level():
+    """惰性模块：网络库只能出现在函数体内（顶层出现即倒退）。"""
+    for name in _LAZY_NETWORK_MODULES:
+        tree = ast.parse((SRC / name).read_text(encoding="utf-8"))
+        bad = _imported_top_levels(tree) & _NETWORK_MODULES
+        assert not bad, f"{name} 顶层 import 网络库: {sorted(bad)}——须函数内惰性导入"
 
 
 def test_gui_config_httpx_is_function_local_not_module_level():

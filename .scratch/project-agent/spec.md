@@ -1,8 +1,8 @@
-# Spec: 项目构建 Agent（Project Agent）v2.1
+# Spec: 项目构建 Agent（Project Agent）v2.2
 
 Status: ready-for-agent
 词汇: 严格使用 GLOSSARY.md；遵循 docs/adr/0001–0005
-来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q69）
+来源: 32 轮 grilling 设计会话 + 实现期裁定（决策台账 .scratch/project-agent/decisions.md，Q1–Q71）
 
 ## 版本志
 
@@ -17,8 +17,9 @@ Status: ready-for-agent
 | v1.6 | 2026-10-25 | question 与 choice:build_way payload +explanation；仪表盘 +teach_me_pref；ask 档指引询问真断点化（四选含 teach-me）——13 票 |
 | v1.7 | 2026-10-25 | 14 票问卷重编排：ask_tasks 瘦身为简报直写、指引一问归 guidance_trigger（发射/消费/user_mode 推导）、入口路由 +guidance_pref 行、首启改配置窗口、决策模式/技能包出问卷 |
 | v1.8 | 2026-10-25 | **真模型接线（Q64）**：配置格式定 .env、OpenAI 兼容客户端、运行时一站装配、本地账单实际落账、密钥防推送加固 |
-| v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`PROTOCOL_MESSAGES` 表（6 类下行 + 2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；传输层（WebSocket）仍欠 |
 | v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
+| v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`DOWN_MESSAGES`（6 类下行）+ `UP_MESSAGES`（2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；决议类断点三层渲染修复 |
+| v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）、Ink 前端骨架、面板按键、产物分发与 engine 并联全部落地——**双运行时完整可用** |
 
 ## Problem Statement
 
@@ -379,7 +380,21 @@ Status: ready-for-agent
 3. **零业务逻辑在协议层**：`messages.py` 只做形状校验与折叠渲染，不 import 任何图/节点/模型模块（红线：协议层反向依赖图 = 倒退）。
 4. **结构化语义仍走自由文本**：决议类断点的 `payload` 原样透传（前端不得解释），`input` 永远是纯文本——与"统一输入协议 / 图内零 interrupt"一致。
 
-**尚未落地的部分**（记入"已知欠账"）：WebSocket 传输、后端服务化进程模型、前端 Ink 组件、Bun 打包。
+**尚未落地的部分**（记入"已知欠账"）：前端 Ink 组件、Bun 打包。
+
+### 传输层（UX-2 第二片，v2.2 Q71 三裁）
+
+协议消息走 WebSocket（`websockets` 库，MIT）；本机回环、单会话。三处裁定：
+
+1. **端口 = 随机 + 握手文件**。后端 bind `127.0.0.1:0` 由 OS 分配空闲端口，把 `{pid, port, thread_id, protocol_version, started_at}` 写入握手文件 `<cwd>/.project-agent/handshake.json`（`--state` 同目录）。前端读该文件连接——**不固定端口**（避免撞端口 / 多项目并行冲突）。握手文件在会话结束时删除；残留文件（进程已死）由前端识别 pid 后忽略并重试。
+2. **前端产物 = 首次运行时下载**。Python 包**不打包**前端产物（wheel 保持纯 Python 体积）；首次运行 `engine` 时若本地无前端产物，从发布地址下载到 `~/.project-agent/frontend/<version>/` 并校验。**下载失败或用户拒绝 → 退终端降级渲染**（`default_rendering`，已在 v2.1 落地），不阻塞使用。
+3. **断线重连 = 复用 thread_id 续跑**。前端重连后带上握手文件里的 `thread_id`；后端用同一 checkpointer + 同一 thread 继续，末态由 `REPL↔主图` 的既有续跑路径（`_seed_state_from_checkpoint`）重建。**不新开会话**——用户断线不等于放弃上下文。显式放弃走 `--new-session`。
+
+**传输层三条硬约束**（延续协议层）：`transport.py` 只做"收上行 → 调分发 → 发下行"，零业务逻辑；**顶层不得 import 图/节点内部**（AST 哨兵，与 `messages.py` 同法）；后端仍须能在无前端时裸终端运行（同一 `handle_input` 实现，两条消费者）。
+
+**前端骨架（UX-3 片 2，已落地）**：`frontend/` = TS + React 19 + Ink；`src/protocol.ts`（六类下行解析，与后端消息表镜像）/ `handshake.ts`（随机端口发现）/ `client.ts`（WebSocket 连与重连）/ `width.ts`（东亚字宽，**禁用 String.length**）/ `App.tsx`（渲染 + 按键）。前端**只按 type 分派渲染，断点文案直接用后端给的 `lines`，不重排**。测试：`vitest` 覆盖协议解析、握手发现、字宽、面板取数、纯视图渲染、入口降级（30 例）。
+
+**产物分发与 engine 并联（UX-3 片 4，已落地）**：`frontend_launcher.py`（纯逻辑，零网络注入）——`ensure_frontend` 顺序 = 已安装目录 → 开发态 `frontend/` → 下载安装到 `~/.project-agent/frontend/<version>/`；解包**拒绝对路径与 `..` 穿越**；**任何失败一律返回 None**（降级优先于报错）。`engine` 启动时探活前端：非 TTY / 无 Node / 无产物 / 退出码 2 → **回落裸终端 REPL**；前端正常则后端转为协议服务。`--no-ui` / `--ui` 两个显式开关。**Ink 需要 TTY（raw mode）**——非 TTY 下前端以码 2 退出并说明，这是降级判定的信号。
 
 ### 路由
 
@@ -469,8 +484,8 @@ Status: ready-for-agent
 | ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
 | 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
-| 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输、后端服务化进程模型未做 | UX 票 |
-| 前端界面（UX-3） | Ink/React 19 组件、按键、Bun 打包未开票 | UX 票 |
+| 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输与握手发现 v2.2 开做（三裁已定） | UX 票 |
+| 前端界面（UX-3） | 片 1–4 已落（传输层 / Ink 骨架 / 面板按键 / 产物下载与 engine 并联）；仅余片 5 收口 | UX 票 |
 | guidance_read_version 门归属 | assembler 先消费 vs 指引通道自消费，未终裁 | 待裁 |
 | planner 模板覆盖修复 todo | 终检环回 planner 会覆盖修复项，持久化未定 | 待裁 |
 | nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做 | 待裁 |
@@ -491,7 +506,7 @@ Status: ready-for-agent
 
 ## Further Notes
 
-- 决策全量台账：`.scratch/project-agent/decisions.md`（Q1–Q69，含演化痕迹与否定记录）
+- 决策全量台账：`.scratch/project-agent/decisions.md`（Q1–Q71，含演化痕迹与否定记录）
 - 研究笔记：`docs/research/langgraph-verification-2026.md`（LangGraph 1.x 事实核查）、`docs/research/shell-permission-survey.md`（8 产品权限调研）
 - 版本敏感警告集中在台账"middleware 事实核查"节——实现前先在锁定版本上验证 `request.override` / `dynamic_prompt` 签名；"END 后同 thread 再 invoke 从 START 重跑且 state 恢复"已实测通过（轮协议的底层前提成立）。
 - v1.1 的推导性决策现已全部落地或转入欠账清单：`turn_end_payload` / `awaiting_input_from` / 环计数器分字段 / `demo_phase` 均已实现；`AskUserQuestion = 提问断点` 仍是协议语义（工具本体欠账）；图内指引无历史累积已由 teach-me 通道一并继承。

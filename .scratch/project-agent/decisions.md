@@ -275,6 +275,45 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 验证：spec 500 行 / 75 用户故事 / 20 行欠账 / 表格全闭合；GLOSSARY 词条 43 → 49 且哨兵绿；882 测试全绿、ruff 干净。
 - **未修（留待用户裁）**：D 节建议的三份 ADR（文案可读性契约 / 配置格式 / 单题问卷）——属"补决策记录"而非冲突，不擅立；13 票 C 节问卷文案表被 14 票整表替换但票面未改口（票面 stale，需重写票 13 或加作废标记）。
 
+**Q71（UX-2 传输三裁 + 片 1 落地，2026-10-26 上午，用户裁定）**：用户对票 16 预留的三个待裁点一口气裁定，按 Q68 纪律**先回填 spec v2.2 再动代码**。
+- **三裁**：①**随机端口 + 握手文件**——后端 bind `127.0.0.1:0` 由 OS 分配，`{pid, port, thread_id, protocol_version, started_at}` 原子写入 `<cwd>/.project-agent/handshake.json`；前端读文件连接，不固定端口（避免撞端口与多项目并行冲突）。②**前端产物首次运行下载**——wheel 保持纯 Python 不打包前端，首次运行下载到 `~/.project-agent/frontend/<version>/` 并校验；失败/拒绝 → 退终端降级渲染。③**断线复用 thread_id 续跑**——重连带握手文件的 thread_id，同 checkpointer 同 thread，末态由 `_seed_state_from_checkpoint` 重建；不新开会话，显式放弃走 `--new-session`。
+- **spec v2.2**：新增『传输层（UX-2 第二片）』节承载三裁 + 三条硬约束；版本志补 v2.2；来源行与 Further Notes 统一 Q1–Q71；欠账表"前端传输层"行改口为"v2.2 开做（三裁已定）"。**顺带修掉版本志顺序错误**（v2.1 曾排在 v2.0 之上）。
+- **repl.py 结构改动（本片唯一）**：新增 `_emit`（下行消息 → 终端降级渲染 + 可选收集）/ `_notice`（即时提示）/ `begin_collect` / **`handle_input(text) -> list[dict]`**；22 处 `_io.write_line` 直写全部改走 `_notice`，轮终交付改走 `_emit(round_end_message(...))`。**终端行为逐字不变**（882 旧测试全绿为判据），而 WebSocket 拿到的是同一份结构化消息——两个消费者共用一条实现，不是两套逻辑。
+- **transport.py 新模块**：`Handshake` 数据类 + `write_handshake`（**原子写**：临时文件 + `os.replace`，防前端读到半截 JSON）/ `read_handshake`（六字段校验，bool 冒充 int 拦）/ `clear_handshake` / `is_stale`（pid 存活判定）/ `new_handshake` / `ProtocolServer`（收上行 JSON → `decode` 校验 → 分发；坏 JSON 或不合协议回 `notice` 而非崩溃）/ `is_quit` / `make_serve`（**延迟 import websockets**，顶层不引网络库——Q39 红线同法）/ `_bound_port`（从 Server.sockets 取实际端口，版本形态兜底）。
+- **测试 882 → 906（+24）**：握手文件往返/原子写/父目录/损坏/缺字段/bool 冒充/清理幂等/陈废三态；上行分发五路（正常 input、quit、坏 JSON、未知 type、缺字段）；`is_quit`；**真实 WebSocket 端到端**（临时目录起服务 → 等握手文件 → 读端口 → 真连 → input 收 notice → 撤销 → 断言握手文件被清理）；两条 AST 红线哨兵（不依赖图/模型；顶层不 import websockets）。
+- **依赖**：`websockets>=12` 补进 pyproject `dependencies`（venv 中原已存在但从未声明——本身是一处欠账，现已补）。
+- **冒烟（真实链路）**：起服务 → 握手文件 `pid=24200 port=51296 thread=t-smoke v1` → 陈废判定 False → 连上后「我想做一个记账 CLI」收到 `round_end`（含结构化 payload 与 `lines`）→「嗯」收到 `round_end` → `quit` 收到 `farewell` → 握手文件已清理；同时终端路径七项断言全绿。
+- **票 16 改为 in_progress**：三裁从"未定需先裁"挪到"已裁三点"，片 1 标记为本片；片 4 改为"产物下载与 engine 并联"。
+- 未做（后续片）：前端 Ink 骨架（片 2）、面板按键（片 3）、产物下载与 engine 并联（片 4）、收口（片 5）。
+
+**Q71 续（UX-3 片 2：Ink 前端骨架落地，2026-10-26 上午）**：片 1 提交后直接做片 2，前后端真实联调跑通。
+- **`frontend/` 新目录**（TS + React 19 + Ink 8 + ws，Node v24）：`src/protocol.ts`（六类下行解析，形状严格镜像后端 `messages.py`，**数组不得冒充对象**）/ `src/handshake.ts`（随机端口发现：六字段解析、pid 存活、协议版本兼容）/ `src/client.ts`（WebSocket 连接与消息桥）/ `src/width.ts`（东亚字宽，**显式禁用 String.length**）/ `src/App.tsx`（渲染队列 + 按键采集，不持有业务状态）/ `src/main.tsx`（入口，连不上即降级提示）。
+- **职责边界的代码化**：前端拿到 `round_end` 直接绘制后端给的 `lines`，**不重排文案**——否则两处文案必然漂移（spec『文案可读性契约』的跨端推论）。
+- **测试 12 例（vitest）**：协议解析 6（六类下行、坏 JSON、未知 type、缺字段、lines 含非串、payload 为数组）+ 握手 4（往返、缺字段、版本兼容、pid 存活）+ 字宽 2（全角 2 列、length 与显示宽度不等哨兵）。
+- **修掉一处真缺陷（造红转绿）**：`parseDownMessage` 对 `payload: []` 曾经放行（`typeof [] === "object"`），与后端 `MessageError` 的严格性不一致；补 `Array.isArray` 拒绝后转绿。
+- **真实联调冒烟**：后端起在**随机端口 57297**（握手文件 `thread=t-frontend`）→ 前端读握手文件发现并连上 → `input → round_end → choice:build_way → farewell` 全通；终端路径同时保持八项断言全绿。
+- **工具链事实**：本机无 `bun`、无全局 `pnpm`；用 DSH 提供的 node/pnpm 路径（`pnpm.mjs`）。`pnpm run typecheck/build` 会被 esbuild 构建审批阻断，改用 `node node_modules/typescript/bin/tsc` 直接调用（已在 `package.json` 加 `pnpm.onlyBuiltDependencies` 白名单）。`vitest --reporter=basic` 在 vitest 5 下不可用，改默认 reporter。
+- **`.gitignore` 补**：`frontend/node_modules/`、`frontend/dist/` 不入库；锁文件 `pnpm-lock.yaml` 入库保证可复现。
+- **未做**：片 3（面板/按键细化）、片 4（产物下载 + engine 并联）、片 5（收口）。
+
+**Q71 再续（UX-3 片 3：面板与按键，2026-10-26 中午）**：前端从"能收发"推进到"能看"。
+- **常驻按键提示行**：`Enter 提交 · Ctrl+O 状态面板 · Ctrl+T 教学页 · Esc 退出`（观感对齐 Claude Code 的按键提示惯例）。
+- **状态面板（Ctrl+O 折叠）**：显示最近 `task_brief:` 状态行 + 最近断点（reason 与行数）。**前端不解析 Dashboard**——只显示 `/status` 的 notice 文本，业务状态仍在后端。
+- **教学页面板（Ctrl+T 折叠）**：显示路径与轮次；**前端不内联渲染 HTML**，只提示用浏览器打开（teach-me 页是自包含单文件，归浏览器）。
+- **可测性重构（本片真正的技术收获）**：把纯展示部分抽成 `TranscriptView`（**无 hooks、无副作用**），用 ink `renderToString` 做真实渲染断言 6 例；`toEntries` 导出为纯函数，面板取数直接测**真实实现**而非镜像副本（镜像必漂移）；`subscribe` 改为 **prop 注入**（去掉全局单例依赖），组件与测试都更干净。
+- **三条形态事实（踩过才知道）**：① Ink 8 无 `lastFrame`；② `renderToString` 不跑 effect，故**只有纯组件可做渲染断言**；③ Windows 无 `pty`/`termios`，PTY 抓帧不可用。这三点合起来使"纯视图 + renderToString"成为唯一可靠的渲染测试路径。
+- 测试：前端 12 → **26**（+6 渲染 +8 面板取数；原 5 例镜像测试重写为测真实实现）。
+- **未做**：片 4（产物下载 + engine 并联）、片 5（收口）。
+
+**Q71 三续（UX-3 片 4：产物分发 + engine 并联，2026-10-26 中午）**：双运行时从"能跑"到"单命令可用"。
+- **`frontend_launcher.py`**（纯逻辑，网络经 `fetch` 注入 → 测试零网络）：`ensure_frontend` 查找顺序 = **已安装目录 → 开发态 `frontend/` → 下载安装到 `~/.project-agent/frontend/<version>/`**；`_extract` 支持 zip/tar，**拒绝对路径、盘符、`..` 穿越**；`frontend_url` 从环境变量 `PROJECT_AGENT_FRONTEND_URL` 取（不硬编码不存在的 URL）；**任何失败一律返回 None**——降级优先于报错。
+- **`engine` 并联**：新增 `--no-ui` / `--ui`；默认尝试前端。`_launch_frontend` 先**探活**（非 TTY 下前端退码 2）→ 通过则以 `Popen` 交接，后端转协议服务（`make_serve` + `asyncio.run`）；不通过 → 裸终端 REPL。
+- **两处真缺陷（造红转绿）**：① `_extract` 的穿越检查**漏掉绝对路径**——Windows 上 `Path("/abs/x").is_absolute()` 为 False 且 zipfile 不规范化开头 `/`，改用显式前缀 + 盘符 + `..` 三重检查；② 前端在**非 TTY** 直接崩栈（Ink "Raw mode is not supported"）——入口先判 `canRenderInk()`（isTTY 且 setRawMode 可调用），不支持则以**码 2** 退出并说明，`engine` 据码 2 回落。
+- **红线哨兵自身缺陷修复**：`test_no_network_reporting` 原用 `ast.walk` 扫全文件，却标注"顶层零网络 import"——语义与实现不符（此前靠给 `gui_config.py` 整文件豁免绕过）。本轮改为**只扫模块顶层**（函数内惰性导入不算），把 `frontend_launcher.py` 加入惰性集合并加"顶层出现即倒退"断言。**这是修哨兵不是放宽标准**：顶层 import = 进程启动即有外发能力，函数内惰性导入 = 用户主动动作才发生，二者语义本就不同。
+- **测试 906 → 928（+22）**：启动器 21（布局/发现顺序/URL 解析/下载安装/带顶层目录的 tar/下载失败/空载荷/缺入口/穿越拒绝/格式拒绝/两条红线）+ 哨兵语义测试。前端 26 → 30（+4 入口降级判定）。
+- **联调验证**：`--no-ui` 裸终端正常（开场三行 + 再见，码 0）；`--ui` 非 TTY 下探活得码 2 → 回落裸终端、零崩溃；开发态产物发现命中 `frontend/dist/main.js`。
+- **未做**：片 5（收口：合并、全量、勾票）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）

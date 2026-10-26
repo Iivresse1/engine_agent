@@ -1,0 +1,35 @@
+{
+  "name": "project-agent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Project Agent 前端（TS + React 19 + Ink）——只消费协议消息，不持有业务状态",
+  "license": "Apache-2.0",
+  "bin": {
+    "engine-ui": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.tsx",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "get-east-asian-width": "^1.7.0",
+    "ink": "^8.0.0",
+    "react": "^19.3.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

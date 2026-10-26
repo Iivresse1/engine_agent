@@ -22,3 +22,7 @@ state.db.session.json
 # 自托管冒烟产物（workspace_root=cwd 时 actor 落盘；用户项目里是合法交付物）
 BUILD_LOG.md
 NOTES.md
+
+# 前端（UX-3）：依赖与编译产物不入库；锁文件入库（可复现安装）
+frontend/node_modules/
+frontend/dist/
