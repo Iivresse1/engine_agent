@@ -45,6 +45,7 @@ from langchain_core.runnables import RunnableConfig
 # 1.2.17 的签名白名单只认 Optional[RunnableConfig]（含字符串注解形式），
 # 写 `RunnableConfig | None` 会触发 UserWarning 且 config 不再注入。
 from project_agent.ask_agent import build_guidance
+from project_agent.assist_link import annotate_links
 from project_agent.compression import (
     DEFAULT_BUDGET_TOKENS,
     CompactionPack,
@@ -228,6 +229,50 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
         "turn_end_payload": payload,
         "awaiting_input_from": Role.ACTOR.value,
     }
+
+
+def make_ask_tasks_node(store: Any = None):
+    """ask_tasks 节点工厂（12 票检索注入接线，v2.4）。
+
+    - task_brief 已设 → {}
+    - 首条自由文本 → 写 task_brief + round_end（既有行为）
+    - `store` 非 None 且能检索到**同项目历史 final_report** → 简报写定时
+      在回执里附一行历史经验（跨会话长期记忆的注入点，用户故事 21 延伸）
+
+    检索 key 与 finalizer 写入侧严格同源：`f"final_report:{task_brief}"`。
+    """
+
+    def ask_tasks(
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
+    ) -> dict[str, Any]:
+        if state.get("task_brief"):
+            return {}
+
+        brief = _first_human_text(state)
+        if not brief:
+            return {}
+
+        text = f"任务简报已记录：{brief}"
+        recalled = _recall_final_report(store, brief)
+        if recalled:
+            text = f"{text}\n历史经验（上次同类项目）：{recalled[:80]}"
+        return {"task_brief": brief, **_round_end(text, state)}
+
+    return ask_tasks
+
+
+def _recall_final_report(store: Any, brief: str) -> str:
+    """从 Store 检索同 brief 的 final_report；无 store/无命中/异常 → ""。"""
+    if store is None:
+        return ""
+    getter = getattr(store, "get", None)
+    if not callable(getter):
+        return ""
+    try:
+        value = getter(f"final_report:{brief}")
+    except Exception:  # noqa: BLE001 - 检索失败不阻断简报写定
+        return ""
+    return str(value or "")
 
 
 def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
@@ -635,8 +680,15 @@ def make_assembler_node(
                 updates["guidance_read_version"] = align_guidance_read(notes_version)
 
         # 技能头块：只注名字+一句话（懒加载——全文触发时才读入）
-        skill_lines = [f"{h.name}：{h.one_liner}" for h in skill_heads()]
-        sections.append("【技能】\n" + "\n".join(skill_lines))
+        # 17 票：按已选技能包筛选（skill_packs 的图内消费者）。
+        # 注意 falsy 陷阱：用户显式清空清单 → 不注任何技能，不得回退全集。
+        selected_packs = state.get("skill_packs")
+        selected_heads = skill_heads(
+            None if selected_packs is None else list(selected_packs)
+        )
+        skill_lines = [f"{h.name}：{h.one_liner}" for h in selected_heads]
+        if skill_lines:
+            sections.append("【技能】\n" + "\n".join(skill_lines))
 
         # 07：way4 DocScaffold 框架先行说明（无框架时才追加）
         if (
@@ -729,6 +781,18 @@ _NOTE_MARKER = "记录："
 _SKILL_MARKER = "技能："
 _RECOMMEND_RE = re.compile(r"推荐技能：([^\n（(]+)[（(]([^）)]*)[）)]")
 
+# 17 票：作用域声明指令（行首"作用域：{scope}"）——current_scope 的 actor 写者
+_SCOPE_RE = re.compile(r"^\s*作用域：\s*(\S+)", re.MULTILINE)
+
+
+def _parse_scope(text: str) -> str | None:
+    """「作用域：{scope}」解析：首个行首命中即取；无 → None。"""
+    match = _SCOPE_RE.search(text or "")
+    if match is None:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
 
 def _parse_notes(text: str) -> list[str]:
     """「记录：{note}」指令解析：str.split(_NOTE_MARKER) 后取非空段，
@@ -806,15 +870,167 @@ def _delivery_output(text: str, shared_docs: Any) -> str:
     return out
 
 
-def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
-    """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
-    messages = _actor_model_messages(state)
-    result = model.complete(
-        messages,
-        role=Role.ACTOR.value,
-        thread_id=_thread_id_from(config),
+def _actor_tool_runner(state: Mapping[str, Any]) -> Any:
+    """17 票：构造 actor 的工具执行函数（绑定工作区 + 权限档位）。
+
+    - 文件类工具走 `file_tools.execute`（路径受控在 workspace_root 内）；
+    - `Shell` 工具走 `ShellTool`：静态正则 + 两旋钮，interrupt 初值由
+      **仪表盘 `decision_mode`** 派生（`knobs.from_decision_mode`）——
+      这是 `decision_mode` 的图内消费者（原欠账）。
+    - 审批回调：无交互通道时按"全部人工 → 拒；AI 审核 → 拒高危、放常见"
+      的保守策略（审批的完整交互在 REPL 宿主，工具环内不弹窗）。
+    """
+    from pathlib import Path as _Path
+
+    from project_agent.tools.approval import ApprovalResult
+    from project_agent.tools.file_tools import execute as file_execute
+    from project_agent.tools.knobs import from_decision_mode
+    from project_agent.tools.shell_policy import ShellPolicy
+    from project_agent.tools.shell_tool import ShellPermissionDenied, ShellTool
+
+    workspace_root = state.get("workspace_root")
+    root = _Path(str(workspace_root)) if workspace_root else _Path.cwd()
+
+    mode = str(state.get("decision_mode") or "ai_review")
+    try:
+        knobs = from_decision_mode(mode)
+    except ValueError:
+        knobs = from_decision_mode("ai_review")  # 未识别 → fail-closed 到审核档
+
+    def _approval(request: Any) -> ApprovalResult:
+        """图内审批：无交互通道时的保守判定（fail-closed 方向）。
+
+        AI 审核档：静态检查已放行的命令视为可执行（静态 deny 不会走到这里）。
+        全权人工档：一律要求人工确认，但图内无通道 → 拒绝。
+        """
+        # 术语哨兵：GLOSSARY 把 interrupt 列为 _Avoid_ 标识符（只有 tools/ 子树
+        # 按 Q23 豁免为两旋钮术语）——此处按档位字符串比较，不引入该名字。
+        if knobs.ask_level() == "human":
+            return ApprovalResult(approved=False, note="全权人工档需在终端确认，工具环内暂拒")
+        return ApprovalResult(approved=True, note="AI 审核档：静态检查已放行")
+
+    class _SubprocessRunner:
+        """真实 shell 执行器：subprocess 跑命令，捕获输出（超时即杀）。"""
+
+        def __init__(self, workspace_root: Any) -> None:
+            self._root = workspace_root
+
+        def run(self, command: str) -> str:
+            import subprocess
+
+            completed = subprocess.run(  # noqa: S602 - 已过 ShellPolicy 判定与审批
+                command,
+                shell=True,
+                cwd=str(self._root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+            parts = []
+            if completed.stdout:
+                parts.append(completed.stdout.rstrip())
+            if completed.stderr:
+                parts.append("[stderr]\n" + completed.stderr.rstrip())
+            parts.append(f"[exit code: {completed.returncode}]")
+            return "\n".join(parts)
+
+    shell_tool = ShellTool(
+        ShellPolicy(knobs, root),
+        _approval,
+        _SubprocessRunner(root),
     )
-    return str(result.text)
+
+    def run(tool: str, arguments: Mapping[str, Any]) -> Any:
+        """统一返回 ToolResult（成功/失败都是结构化结果，不靠字符串前缀猜）。"""
+        from project_agent.tools.file_tools import ToolResult
+
+        if tool == "Shell":
+            command = str(arguments.get("command") or "")
+            try:
+                return ToolResult(content=shell_tool.run(command), ok=True)
+            except ShellPermissionDenied as exc:
+                return ToolResult(
+                    content=f"错误：shell 被拒（{exc.decision.rule_id}）：{exc.decision.reason}",
+                    ok=False,
+                )
+            except PermissionError as exc:
+                return ToolResult(content=f"错误：{exc}", ok=False)
+        if tool == "AskUserQuestion":
+            # 结构化提问：不阻塞，把问题折成文本回灌——真正的提问断点由
+            # actor 后置工序读 round_text 里的内容决定是否外露
+            from project_agent.assist_tools import ask_user_question
+
+            try:
+                request = ask_user_question(
+                    str(arguments.get("question_text") or ""),
+                    str(arguments.get("explanation") or ""),
+                    arguments.get("options"),
+                    str(arguments.get("asker") or "actor"),
+                )
+            except ValueError as exc:
+                return ToolResult(content=f"错误：{exc}", ok=False)
+            lines = [request.text]
+            if request.explanation:
+                lines.append(f"解释：{request.explanation}")
+            lines.extend(f"{index}. {option}" for index, option in enumerate(request.options, 1))
+            return ToolResult(content="\n".join(lines), ok=True)
+        if tool == "SkillRecommend":
+            from project_agent.assist_tools import (
+                recommend_skills,
+                render_skill_recommendations,
+            )
+
+            items = recommend_skills(
+                str(arguments.get("purpose") or ""),
+                packs=state.get("skill_packs"),
+                limit=int(arguments.get("limit") or 3),
+            )
+            return ToolResult(content=render_skill_recommendations(items), ok=True)
+        return file_execute(root, tool, arguments)
+
+    return run, knobs
+
+
+def _run_actor_with_tools(
+    state: Mapping[str, Any],
+    config: Any,
+    model: Any,
+    messages: list[dict[str, Any]],
+) -> str:
+    """17 票：模型支持工具调用则走工具环，否则退回单发 complete。
+
+    兼容红线：既有桩模型只有 `complete`——`supports_tools` 探测为 False 时
+    行为与 05/07 票逐字一致（976 既有测试全绿为判据）。
+    """
+    from project_agent.model_client import supports_tools
+    from project_agent.tools.registry import BUILDER as BUILDER_ROLE
+
+    if not supports_tools(model):
+        result = model.complete(
+            messages, role=Role.ACTOR.value, thread_id=_thread_id_from(config)
+        )
+        return str(result.text)
+
+    from project_agent.tools.tool_loop import ToolLoop
+
+    runner, _knobs = _actor_tool_runner(state)
+
+    def complete(history: list[Mapping[str, Any]], definitions: list[dict[str, Any]]) -> Any:
+        return model.complete_with_tools(
+            history, definitions, role=Role.ACTOR.value, thread_id=_thread_id_from(config)
+        )
+
+    loop = ToolLoop(role=BUILDER_ROLE, runner=runner)
+    outcome = loop.run(complete, list(messages))
+    text = outcome.text or "（工具轮次耗尽，未产出终稿）"
+    return f"{text}\n\n{outcome.summary}" if outcome.summary else text
+
+
+def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+    """way1 身体：ReAct 对话推进（05 骨架形态；17 票起有工具能力则走工具环）。"""
+    return _run_actor_with_tools(state, config, model, _actor_model_messages(state))
 
 
 # 07 终裁 B：grilling prompt 差异行——与 way1 身体唯一差异。
@@ -853,12 +1069,7 @@ def _grilling_body(
     ):
         _lay_scaffold(shared_docs)
     messages = _grilling_model_messages(state)
-    result = model.complete(
-        messages,
-        role=Role.ACTOR.value,
-        thread_id=_thread_id_from(config),
-    )
-    return str(result.text)
+    return _run_actor_with_tools(state, config, model, list(messages))
 
 
 def _lay_scaffold(shared_docs: SharedDocs) -> None:
@@ -898,8 +1109,13 @@ _ACTOR_BODIES: dict[str, Any] = {
 }
 
 
-def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None):
-    """actor 节点工厂（05 票终裁 7；06 票扩 shared_docs）。
+def make_actor_node(
+    model: Any = None,
+    shared_docs: Optional[SharedDocs] = None,
+    *,
+    link_fetch: Any = None,
+):
+    """actor 节点工厂（05 票终裁 7；06 票扩 shared_docs；17 票工具环）。
 
     - 每轮派生 cfg=derive_actor_config(build_way, guidance_mode)——仅用于
       身体选择 `_ACTOR_BODIES.get(way, way1 身体)`，不持久化不写 state
@@ -995,6 +1211,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
             "todos": new_todos,
             "round_summary": round_summary,
         }
+        # 17 票：current_scope 的 actor 写者——响应含行首"作用域：{scope}"即声明
+        declared_scope = _parse_scope(text)
+        if declared_scope is not None:
+            updates["current_scope"] = declared_scope
         if shared_docs is not None:
             # ① 每产出一轮 +1（首个工作轮=【R1】；跨 invoke 持续靠 checkpointer）
             round_count = int(state.get("round_count") or 0) + 1
@@ -1055,6 +1275,8 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
                         doc_slice=shared_docs.read_round(latest_round) or "",
                         thread_id=_thread_id_from(config),
                     )
+                    # 用户故事 36：指引里的文档链接就地标注死链（无 fetch 时不改文本）
+                    guidance_text = annotate_links(guidance_text, fetch=link_fetch)
                     round_text = f"{round_text}\n{guidance_text}"
                 updates["guidance_read_version"] = align_guidance_read(notes_version)
         updates.update(_round_end(round_text, {**state, "todos": new_todos}))

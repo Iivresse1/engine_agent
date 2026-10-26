@@ -127,15 +127,84 @@ def _prompt(io: IO, text: str, *, required: bool) -> str:
     return value
 
 
+def _api_key_from_desktop() -> str:
+    """Q64 用户明示的密钥来源：桌面 `storage/apikey.txt` 首行（可选兜底）。
+
+    只在**无配置文件**时作为兜底：用户已经写了 config.env 就用它（显式配置
+    优先于约定路径）。读不到/空 → 返回 ""（调用方照常走问卷）。
+
+    探测根按优先级：`PROJECT_AGENT_HOME`（测试/便携用）→ `USERPROFILE` →
+    `HOME` → `Path.home()`。测试须能隔离，故不直接用 `expanduser` 单点。
+    """
+    import os
+
+    roots: list[Path] = []
+    override_home = os.environ.get("PROJECT_AGENT_HOME")
+    if override_home:
+        # 显式指定即**独占**（测试/便携场景）：不再回退真实用户目录，
+        # 否则测试仍会读到宿主桌面密钥。
+        roots.append(Path(override_home))
+    else:
+        for name in ("USERPROFILE", "HOME"):
+            value = os.environ.get(name)
+            if value:
+                roots.append(Path(value))
+        roots.append(Path.home())
+
+    candidates: list[Path] = []
+    explicit = os.environ.get("PROJECT_AGENT_API_KEY_FILE")
+    if explicit:
+        # 显式指定即**独占**（测试隔离 / 便携场景）：不再回退任何探测根，
+        # 否则测试仍会读到宿主桌面密钥，问卷序被打乱。
+        candidates.append(Path(explicit))
+    else:
+        for root in roots:
+            candidates.append(root / "Desktop" / "storage" / "apikey.txt")
+            candidates.append(root / "桌面" / "storage" / "apikey.txt")
+
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            value = _strip_bom(line).strip()
+            if not value or value.startswith("#"):
+                continue
+            # 支持 `api_key=xxx` 与裸 key 两种形态
+            if "=" in value:
+                key, _, rest = value.partition("=")
+                if key.strip().lower() in ("api_key", "apikey", "key"):
+                    return rest.strip()
+                continue
+            return value
+    return ""
+
+
 def ensure_config(store: ConfigStore, io: IO) -> AppConfig:
-    """已有配置零提问直达；缺失则首启问卷一次并写盘（终端 fallback 形态）。"""
+    """已有配置零提问直达；缺失则首启问卷一次并写盘（终端 fallback 形态）。
+
+    在问卷之前先试 Q64 约定的桌面密钥文件：命中则只需问模型名等其余字段
+    （密钥提示语标明来源，用户可回车跳过改为手输）。
+    """
     existing = store.load()
     if existing is not None:
         return existing
 
+    # Q64 兜底：桌面 storage/apikey.txt 命中则密钥免问（模型名等照常问）
+    discovered_key = _api_key_from_desktop()
+    main_model = _prompt(io, "主模型名称（如 deepseek-chat）:", required=True)
+    if discovered_key:
+        io.write_line(f"已从桌面 storage/apikey.txt 读到 API key（{discovered_key[:6]}…）")
+        api_key = (
+            _prompt(io, "API key（回车=用桌面读到的那把）:", required=False) or discovered_key
+        )
+    else:
+        api_key = _prompt(io, "API key:", required=True)
+
     config = AppConfig(
-        main_model=_prompt(io, "主模型名称（如 deepseek-chat）:", required=True),
-        api_key=_prompt(io, "API key:", required=True),
+        main_model=main_model,
+        api_key=api_key,
         base_url=_prompt(io, "API base URL（回车跳过）:", required=False),
         sub_model=_prompt(io, "子角色模型（回车=同主模型）:", required=False),
         decision_mode=(

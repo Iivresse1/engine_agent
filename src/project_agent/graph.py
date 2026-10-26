@@ -16,11 +16,11 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from project_agent.nodes import (
-    ask_tasks_node,
     docs_done_node,
     guidance_trigger_node,
     loop_exhausted_node,
     make_actor_node,
+    make_ask_tasks_node,
     make_assembler_node,
     make_build_ways_node,
     make_check_node,
@@ -71,6 +71,7 @@ def build_graph(
     workspace_root: Path | None = None,
     cheap_model: Any = None,
     store: Any = None,
+    link_fetch: Any = None,
 ) -> Any:
     """workspace_root 非 None → SharedDocs(workspace_root) 同源注入
     assembler 与 actor 两工厂（09：assembler 读 notepad 切片/版本门，
@@ -88,7 +89,7 @@ def build_graph(
     Store 正式接入留接线票。"""
     shared_docs = SharedDocs(workspace_root) if workspace_root is not None else None
     graph = StateGraph(GraphState)
-    graph.add_node(ASK_TASKS, ask_tasks_node)
+    graph.add_node(ASK_TASKS, make_ask_tasks_node(store=store))
     graph.add_node(BUILD_WAYS, make_build_ways_node(model))
     graph.add_node(GUIDANCE_TRIGGER, guidance_trigger_node)
     # 07：way4 三方案并行节点（model=None 走静态兜底三案）
@@ -109,12 +110,12 @@ def build_graph(
     graph.add_node(
         ACTOR,
         with_compression(
-            make_actor_node(model, shared_docs=shared_docs),
+            make_actor_node(model, shared_docs=shared_docs, link_fetch=link_fetch),
             cheap_model=cheap_model,
             shared_docs=shared_docs,
         )
         if cheap_model is not None
-        else make_actor_node(model, shared_docs=shared_docs),
+        else make_actor_node(model, shared_docs=shared_docs, link_fetch=link_fetch),
     )
     graph.add_node(
         VERIFIER,
@@ -141,6 +142,9 @@ def build_graph(
     graph.add_node(DEMO_AGENT, demo_node)
     # 12：finalizer 收尾整理（final_report + Store 存取）+ check_proper_output
     # 终检管线（run_final_check 双份交付）
+    # 08 票挂点：**不包装 finalizer** —— 它不消费消息历史（prompt 只汇总
+    # 简报/方式/摘要/NOTES），压缩检查读了也用不上；强行包装会在 demo 轮
+    # 误触主线 actor_messages 压缩（回归实测）。压缩挂点维持 4 个。
     graph.add_node(FINALIZER, make_finalizer_node(model, store=store, shared_docs=shared_docs))
     graph.add_node(
         CHECK_PROPER_OUTPUT,

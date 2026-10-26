@@ -20,6 +20,8 @@ Status: ready-for-agent
 | v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
 | v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`DOWN_MESSAGES`（6 类下行）+ `UP_MESSAGES`（2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；决议类断点三层渲染修复 |
 | v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）、Ink 前端骨架、面板按键、产物分发与 engine 并联全部落地——**双运行时完整可用** |
+| v2.3 | 2026-10-26 | **17 票工具执行回路（Q72）**：actor 从"文本指令桥"升级为**真实工具调用环**（工具 JSON 定义 → 模型 `tool_calls` → 权限矩阵判定 → 执行 → 结果回灌 → 再循环，封顶 8 次）；FileRead/Glob/Grep/FileWrite/FileEdit/DocScaffold 六件工具本体落地；`decision_mode` 获得图内消费者 |
+| v2.4 | 2026-10-26 | **清欠账（Q73–Q75）**：`/teach-me` 恢复路径、桌面密钥文件读取、`skill_packs` 图内消费与技能包两级、旁路历史持久化、`current_scope` 写者、指引链接验证——六条欠账落地 |
 
 ## Problem Statement
 
@@ -166,6 +168,7 @@ Status: ready-for-agent
 
 - **配置格式 = .env 平面（`~/.project-agent/config.env`）**：KEY=VALUE 逐行，零新解析依赖（PyYAML 被否，不进依赖树）；旧 `config.json` 首读自动迁移（读 → 写 .env → 删旧件，内容无损）。字段序即首启字段序：`main_model / api_key / base_url / sub_model / decision_mode`。
 - **BOM 容错**：读侧剥 `\ufeff`（Windows PowerShell 管道/写盘常见伪影，不剥则首键名被污染、配置静默丢失）；问卷输入行同样剥。
+- **桌面密钥兜底（Q64 用户明示路径，v2.4 落地）**：**无配置文件**时先探 `<home>/Desktop/storage/apikey.txt`（兼容 `桌面/`；裸 key 与 `api_key=` 两形态；BOM 剥）；命中则问卷免问密钥（提示来源，回车即用发现值）。**显式配置优先**——已有 `config.env` 时不探桌面。`PROJECT_AGENT_HOME` 与 `PROJECT_AGENT_API_KEY_FILE` 为**独占语义**的覆盖（设了就只读它，供测试隔离与便携使用）。
 - **配置全局、状态每项目**：配置在 `~/.project-agent/`（一次配置任何目录可用）；会话状态三件 `state.db / state.db.session.json / ledger.json` 落在 `<cwd>/.project-agent/`（换目录即新会话）。
 - **OpenAI 兼容客户端**：ChatOpenAI 打 OpenAI 兼容端点（DeepSeek/官方皆可）；`base_url` 缺 scheme 时归一补 `https://`、去尾斜杠；`langchain_openai` **惰性导入**（模块导入零网络零重依赖，测试注入 chat 桩即零依赖跑协议面）；用量双路读取（`usage_metadata` 优先 → `response_metadata.token_usage` 兜底）。
 - **运行时一站装配**：主/廉价客户端各包 MeteredModel 并**共享同一 TokenLedger**；`cheap = sub_model`（缺省同主模型，同一实例省一次构造；cheap 非 None 即挂压缩横切）；AskBypass 用独立 thread（`{thread_id}-ask` 后缀，ADR-0002 物理隔离）；`client_factory` 为注入缝（测试零网络全链路）。
@@ -314,7 +317,7 @@ Status: ready-for-agent
 - **压缩（Q54）**：模型调用前统一检查——**四个 LLM 挂点**（assembler / actor / verifier / demo_agent）挂同一压缩检查；`planner` 为纯代码零 LLM 调用，**不挂**（物理上无模型调用可压）；80% 阈值触发，压最老 5 轮/包（便宜模型）为【R#-compact】摘要；压后目标 ≤60%，不足再压一包（同轮最多两包）；最近 3 轮原文永不压缩；错误猜想写 Notepad；手动 `/compact` 兜底（压缩批须随下轮 invoke 进图，否则 checkpointer 历史永不收缩——`add_messages` 指令批是收缩正道）。
 - **注入位置（Q56）**：头部单包——全部压缩摘要合并为消息历史头部一个记忆区，每包首行标注覆盖轮次。
 - **作用域**：规则文件（rules/src.md、rules/docs.md…）+ current_scope state 字段；工具子集 = 规则声明集 ∩ 静态矩阵；Todo 自动勾选沿用电三态。
-- **技能懒加载（两级：包 vs 技能）**：技能包（pack）= 一组技能的集合，`skill_packs` 是**包**清单（启动时选择加载哪些包，Q9）；上下文只注**技能**名字 + 一句话描述；SKILL.md 触发时才全文读入；推荐理由 ≤20 字代码硬约束。**内置完整 Matt Pocock 技能包**（Q10）为主 agent 按阶段推荐；现状只有 4 条 SkillHead（grilling/tdd/to-spec/teach-me）且 `skill_body` 为模拟全文桩——见"已知欠账"。
+- **技能懒加载（两级：包 vs 技能）**：技能包（pack）= 一组技能的集合，`skill_packs` 是**包**清单（启动时选择加载哪些包，Q9）；上下文只注**技能**名字 + 一句话描述，且**只注已选包内的**（`skill_heads(packs)` 按包筛选——这是 `skill_packs` 的图内消费者）；SKILL.md 触发时才全文读入；推荐理由 ≤20 字代码硬约束。**显式空清单 = 不注任何技能**（falsy 陷阱第四处：不得因 `[]` 为假而回退全集）。**内置完整 Matt Pocock 技能包**（Q10）为主 agent 按阶段推荐；现状 4 条 SkillHead 同属 `default` 包且 `skill_body` 为模拟全文桩——见"已知欠账"。
 - **final_report**：finalizer 产出 → Store 跨线程长期记忆 → 新会话 ask_tasks 时可检索注入（尚未接线，见"已知欠账"）。
 
 ### 指引与教学通道（13 票 + 14 票）
@@ -344,7 +347,39 @@ Status: ready-for-agent
 - **shell 权限**：静态正则检查器（8 类形态学：灾难删除/下载即执行/提权/凭证面/git 不可逆/网络出口/重定向/命令替换——独立于白名单、deny 全档生效、allow 命中也拦）+ 两旋钮（boundary: readonly/project-write/full 仅 flag × interrupt: AI 审核/全权人工/yolo 仅 flag；决策模式 = interrupt 初值）+ 复合命令拆段 + wrapper 剥离 + 解析失败=ask（fail-closed）。Windows：`rm` 与 `Remove-Item` 别名都拦。
 - **DemoAgent 不运行 demo（ADR-0003）**：工具面 = 全工具，shell 仍过静态正则+两旋钮；唯运行类命令在权限层拒绝，运行权在用户；报错回传融合进 demo_messages，↺环受 demo 环计数约束。
 - **排除工具**：AgentTool / SkillTool / Plan Mode 两件 / Task* 六件 / SendMessage / NotebookEdit / MCP / LSP（v2+）。
-- **欠账**：工具**执行回路**尚未实现——actor 目前以文本指令桥（`写入：`、`记录：`）落盘，无真实工具调用环。见"已知欠账"。
+
+### 工具执行回路（17 票，v2.3）
+
+**形态**：actor 不再靠"写入：/记录："文本桥落盘，而是**真实工具调用环**——一轮内最多 8 次工具往返（`MAX_TOOL_ITERATIONS=8`，超限转 `round` 交付并说明"工具轮次耗尽"）。
+
+**五次工序**（每次工具调用一遍，纯代码编排，零 LLM 判定）：
+
+1. **定义**：`tool_definitions(role)` 产出 OpenAI 兼容的 function schema（name/description/parameters JSON Schema），只含**该角色面内**的工具——面外工具模型根本看不到（构造期矩阵强制，非运行期拦截）。
+2. **调模型**：带 `tools` + `tool_choice="auto"` 请求；模型返回 `aimessage.tool_calls`。
+3. **判定**：逐个调用过 `ToolRegistry.check(role, tool, target)`；`DENY` → 回一条 `tool` 错误消息给模型（**不抛给用户、不中断环**），模型可改道。
+4. **执行**：`allow` → 分派到工具实现；工具内部异常 → 捕获为 `tool` 错误消息回灌（环不崩）。
+5. **回灌**：`ToolMessage(content=结果, tool_call_id=…)` 追加进历史，回到 2 继续；无 `tool_calls` → 视为本轮终稿，走既有 `round_end`。
+
+**工具实现表**（六件本体 + 两件已有）：
+
+| 工具 | 实现要点 | 边界 |
+|---|---|---|
+| FileRead | 读文本（UTF-8，BOM 剥）；可选 offset/limit | 限 workspace_root 内 |
+| Glob | 按 glob 模式找文件（`pathlib.Path.glob`） | 同上 |
+| Grep | 正则搜内容，返回 `文件:行:内容`（封顶 50 条） | 同上 |
+| FileWrite | 全量写（父目录自动建） | 同上；TODO.md 仅 Builder |
+| FileEdit | 字面量替换（`old→new`，必须唯一命中，否则报错不猜） | 同上；TODO.md 仅 Builder |
+| DocScaffold | 按构建方式产交付物骨架（空文件+标题） | 同上；TODO.md 仅 Builder |
+| Shell | **已有** `ShellTool`（policy→审批→runner） | 静态正则 + 两旋钮 |
+| NotepadAdd | **已有**（"记录："文本桥继续保留作为兜底） | — |
+
+**三条硬约束**：
+
+1. **权限在构造期，不在运行期**：模型拿到的 schema 只含面内工具；`check` 是第二道（防模型幻觉造工具名）。
+2. **工具错误不中断环**：deny / 异常 / 超限一律折成 `tool` 消息回灌，模型自行改道——这是"agent 对话节律"的要求，不是我方妥协。
+3. **文本桥不删**：`写入：`/`记录：` 后置工序保留——无模型或模型不调工具时仍能落盘（兼容降级一致性）。
+
+**新增仪表盘消费（顺带清两条欠账）**：`decision_mode` → `ShellTool` 的 interrupt 旋钮初值（`knobs.from_decision_mode`）；`skill_packs` → `skill_definitions` 选包注入（技能头只注已选包内技能）。
 
 ### 外观与分发（v2.0 UX 裁定）
 
@@ -399,7 +434,8 @@ Status: ready-for-agent
 ### 路由
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）。
-- **斜杠命令**：`/help /status /compact /ask-for-help /skills /mode /exit`（前缀匹配，按长度降序取最长命中）。
+- **斜杠命令**：`/help /status /compact /ask-for-help /skills /teach-me /mode /exit`（前缀匹配，按长度降序取最长命中）。
+- **`/teach-me`**：查/改深度教学持久偏好——`off` 清回 `""`（恢复每轮四选询问）、`always` 每轮直出教学页、无参查状态（13 票 B 节裁定的恢复路径）。
 - **`/ask-for-help` 前置条件**：仅项目工作流内可用（`build_way` 已设）；工作流外给拒绝提示（Q35；旁路不承接通用对话——通用形态已被 way1 吸收）。
 - **CLI 旗标**：`--state PATH` 断点库路径（默认 `<cwd>/.project-agent/state.db`，每项目一会话）、`--config PATH` 配置路径（默认全局 `~/.project-agent/config.env`）、`--new-session` 丢弃续跑另起新 thread（Q59/Q67）。（**`/teach-me off` 恢复路径未实现，见欠账**）
 - **首启两层**：见"运行时与配置"节（应用级=配置窗口 + 终端 fallback；项目级=单题指引偏好）。
@@ -469,26 +505,26 @@ Status: ready-for-agent
 
 | 欠账 | 现状 | 归属 |
 |---|---|---|
-| 工具执行回路 | actor 只发文本指令桥（`写入：`/`记录：`），无真实工具调用环——`<Shell>/<Glob>/<FileRead>/<DocScaffold>/<AskUserQuestion>` 尚未执行 | 工具票 |
-| decision_mode / skill_packs 图内消费者 | 字段有写入（配置窗口/种子注入），图内零消费（shell 审批档位接线未接） | 权限接线票 |
-| AskUserQuestion 工具本体 | 仅协议级"提问断点"语义，无工具实现 | 工具票 |
-| SkillRecommend 工具本体 | 矩阵里有声明，用户故事 28 依赖它，但无实现（推荐目前靠 actor 提示词） | 工具票 |
-| `/teach-me off` 恢复路径 | 13 票 B 节裁定"清回 `""`"，spec 命令表与代码 `_COMMANDS` 双缺 | 指引票 |
-| 桌面密钥文件读取 | Q64 用户明示可从 `storage/apikey.txt` 读键，代码无此路径（现只读 `config.env`） | 配置票 |
-| 技能包两级（包 vs 技能） | Q9/Q10 裁定"启动选包、包内多技能、完整 Matt Pocock 包"；现状只有 `skill_packs: list[str]` 扁平串 + 4 条 SkillHead，`skill_body` 为模拟全文桩 | 技能票 |
-| TodoWrite 私有面板 key | 概念在（各角色私有），state 里无对应 key | 工具票 |
-| 旁路 checkpointer 持久化 | AskBypass 有独立 thread，但历史未落盘（重启即失） | 旁路票 |
-| current_scope 写者 | assembler 落定，actor 声明未实现 | 作用域票 |
-| verify_link 接入指引 | 指引里的文档链接未做抓取验证（用户故事 36 未满足） | 指引票 |
-| final_report 检索注入 | finalizer 产出 final_report，ask_tasks 未做检索注入 | 记忆票 |
+| 工具执行回路 | ~~actor 只发文本指令桥，无真实工具调用环~~ → **17 票已落地**：工具 JSON schema + 调用环（封顶 8 次）+ 六件文件工具本体 + Shell 真实执行 | 已完成 |
+| decision_mode / skill_packs 图内消费者 | ~~图内零消费~~ → **两条都已落地**：`decision_mode` 接 `ShellTool` 旋钮；`skill_packs` 接 assembler 技能头注入（包两级，显式空清单=不注技能，falsy 陷阱第四处） | 已完成 |
+| AskUserQuestion 工具本体 | ~~无 tool 形式~~ → **已落地**：`ask_user_question` 构造结构化提问，payload 与断点协议表逐字对齐；模型经工具环调用 | 已完成 |
+| SkillRecommend 工具本体 | ~~无实现~~ → **已落地**：`recommend_skills` 按用途与已选包排序，理由 ≤20 字代码截断；空清单不推荐 | 已完成 |
+| `/teach-me off` 恢复路径 | ~~spec 命令表与代码双缺~~ → **已落地**：`/teach-me` 命令（`off` 清回 `""` / `always` 开启 / 无参查状态） | 已完成 |
+| 桌面密钥文件读取 | ~~代码无此路径~~ → **已落地**：首启无配置时探 `<home>/Desktop/storage/apikey.txt`（裸 key 与 `api_key=` 两形态、BOM 剥）；显式配置优先；`PROJECT_AGENT_API_KEY_FILE` 显式覆盖 | 已完成 |
+| 技能包两级（包 vs 技能） | ~~只有扁平串~~ → **两级已落地**：`SkillHead.pack` + `PACKS` + `skill_heads(packs)` 按包筛选、`known_packs()`；`skill_body` 仍为模拟全文桩（**真实 SKILL.md 文件加载未做**） | 技能票（余桩替换） |
+| NotepadAdd 工具本体 | 工具环分派**已接**（图内 runner）；文本桥"记录："保留为兼容兜底 | 已完成 |
+| 旁路历史持久化 | ~~历史未落盘（重启即失）~~ → **已落地**：历史落 <state 同目录>/ask.history.json（原子写、损坏容错、落盘失败不砸问答） | 已完成 |
+| current_scope 写者 | ~~actor 声明未实现~~ → **已落地**：响应含行首「作用域：{scope}」即写 current_scope | 已完成 |
+| verify_link 接入指引 | ~~链接未验证~~ → **已落地**：ssist_link.annotate_links 抽取链接并就地标「（链接未验证）」；link_fetch 由 uild_graph 注入（默认 None 不改文本） | 已完成 |
+| final_report 检索注入 | ~~ask_tasks 未做检索注入~~ → **已落地**：make_ask_tasks_node(store) 检索同 brief 历史报告并附一行经验（80 字截断、失败不阻断） | 已完成 |
 | ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
-| 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |
+| 压缩挂点补全 | ~~finalizer / 旁路 / 指引三条未挂~~ → **裁决：挂点维持 4 个，finalizer 明确不挂**（不消费消息历史，包装会误触主线压缩——实测回归）；旁路/指引单发无历史累积，压缩无对象 | 已裁（不挂） |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
 | 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输与握手发现 v2.2 开做（三裁已定） | UX 票 |
 | 前端界面（UX-3） | 片 1–4 已落（传输层 / Ink 骨架 / 面板按键 / 产物下载与 engine 并联）；仅余片 5 收口 | UX 票 |
 | guidance_read_version 门归属 | assembler 先消费 vs 指引通道自消费，未终裁 | 待裁 |
 | planner 模板覆盖修复 todo | 终检环回 planner 会覆盖修复项，持久化未定 | 待裁 |
-| nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做 | 待裁 |
+| nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做（17 票后增至 1830 行，拆分更紧迫） | 待裁 |
 
 ## Out of Scope
 

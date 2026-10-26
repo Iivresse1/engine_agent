@@ -65,13 +65,60 @@ def ask_answer(
 
 
 class AskBypass:
-    """REPL 旁路会话：独立 thread 的问答历史自累积（不触碰主图 state）。"""
+    """REPL 旁路会话：独立 thread 的问答历史自累积（不触碰主图 state）。
 
-    def __init__(self, model: Any, shared_docs: Any, thread_id: str) -> None:
+    **持久化（v2.4 落地）**：历史落 `history_path`（JSON，旁路 thread 专属）。
+    `history_path=None` → 仅内存（既有行为，测试零改动）。重启即失的旧欠账
+    由此清掉：同一项目再次 `/ask-for-help` 时接续上次的追问上下文。
+    """
+
+    def __init__(
+        self,
+        model: Any,
+        shared_docs: Any,
+        thread_id: str,
+        *,
+        history_path: Any = None,
+    ) -> None:
         self._model = model
         self._shared_docs = shared_docs
         self._thread_id = thread_id
-        self.history: list[dict[str, Any]] = []
+        self._history_path = history_path
+        self.history: list[dict[str, Any]] = self._load()
+
+    def _load(self) -> list[dict[str, Any]]:
+        """读盘上历史；文件缺失/损坏/路径异常 → 空历史（不阻断开场）。"""
+        if self._history_path is None:
+            return []
+        import json
+
+        try:
+            raw = self._history_path.read_text(encoding="utf-8")
+        except (OSError, AttributeError):
+            return []
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
+    def _save(self) -> None:
+        """原子写历史（临时文件 + 替换，防写到半截）。"""
+        if self._history_path is None:
+            return
+        import json
+        import os
+
+        target = self._history_path
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_text(json.dumps(self.history, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, target)
+        except (OSError, AttributeError):
+            pass  # 落盘失败不砸掉本次问答（下轮再试）
 
     def ask(self, question: str) -> str:
         text, self.history = ask_answer(
@@ -81,6 +128,7 @@ class AskBypass:
             history=self.history,
             thread_id=self._thread_id,
         )
+        self._save()
         return text
 
 

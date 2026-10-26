@@ -16,7 +16,21 @@ def _onboarding_answers() -> list[str]:
     return ["deepseek-chat", "sk-test", "", "", ""]
 
 
-def test_first_run_onboarding_then_zero_questions_on_restart(workspace):
+@pytest.fixture()
+def isolated_home(tmp_path, monkeypatch):
+    """隔离密钥发现：指向不存在的密钥文件（Q64 兜底路径）。
+
+    该兜底会在配置缺失时先探桌面 storage/apikey.txt；本机确实存在该文件，
+    不隔离则问卷问题序被打乱、测试输入整体错位。用 `PROJECT_AGENT_API_KEY_FILE`
+    指向空路径最直接（显式覆盖优先于任何探测根）。
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("PROJECT_AGENT_API_KEY_FILE", str(home / "no-such-apikey.txt"))
+    return home
+
+
+def test_first_run_onboarding_then_zero_questions_on_restart(workspace, isolated_home):
     io = ScriptedIO(_onboarding_answers())
     cfg = ensure_config(ConfigStore(workspace.config_path), io)
     assert cfg.main_model == "deepseek-chat"
