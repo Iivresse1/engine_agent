@@ -231,6 +231,50 @@ def _question_breakpoint(spec, hint: bool = False) -> dict[str, Any]:
     }
 
 
+def make_ask_tasks_node(store: Any = None):
+    """ask_tasks 节点工厂（12 票检索注入接线，v2.4）。
+
+    - task_brief 已设 → {}
+    - 首条自由文本 → 写 task_brief + round_end（既有行为）
+    - `store` 非 None 且能检索到**同项目历史 final_report** → 简报写定时
+      在回执里附一行历史经验（跨会话长期记忆的注入点，用户故事 21 延伸）
+
+    检索 key 与 finalizer 写入侧严格同源：`f"final_report:{task_brief}"`。
+    """
+
+    def ask_tasks(
+        state: Mapping[str, Any], config: Optional[RunnableConfig] = None
+    ) -> dict[str, Any]:
+        if state.get("task_brief"):
+            return {}
+
+        brief = _first_human_text(state)
+        if not brief:
+            return {}
+
+        text = f"任务简报已记录：{brief}"
+        recalled = _recall_final_report(store, brief)
+        if recalled:
+            text = f"{text}\n历史经验（上次同类项目）：{recalled[:80]}"
+        return {"task_brief": brief, **_round_end(text, state)}
+
+    return ask_tasks
+
+
+def _recall_final_report(store: Any, brief: str) -> str:
+    """从 Store 检索同 brief 的 final_report；无 store/无命中/异常 → ""。"""
+    if store is None:
+        return ""
+    getter = getattr(store, "get", None)
+    if not callable(getter):
+        return ""
+    try:
+        value = getter(f"final_report:{brief}")
+    except Exception:  # noqa: BLE001 - 检索失败不阻断简报写定
+        return ""
+    return str(value or "")
+
+
 def ask_tasks_node(state: Mapping[str, Any]) -> dict[str, Any]:
     """简报写定（14 票瘦身：四问循环移除——指引一问归 guidance_trigger）。
 

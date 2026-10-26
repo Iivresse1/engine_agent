@@ -516,9 +516,9 @@ Status: ready-for-agent
 | 旁路历史持久化 | ~~历史未落盘（重启即失）~~ → **已落地**：历史落 <state 同目录>/ask.history.json（原子写、损坏容错、落盘失败不砸问答） | 已完成 |
 | current_scope 写者 | ~~actor 声明未实现~~ → **已落地**：响应含行首「作用域：{scope}」即写 current_scope | 已完成 |
 | verify_link 接入指引 | ~~链接未验证~~ → **已落地**：ssist_link.annotate_links 抽取链接并就地标「（链接未验证）」；link_fetch 由 uild_graph 注入（默认 None 不改文本） | 已完成 |
-| final_report 检索注入 | finalizer 产出 final_report，ask_tasks 未做检索注入 | 记忆票 |
+| final_report 检索注入 | ~~ask_tasks 未做检索注入~~ → **已落地**：make_ask_tasks_node(store) 检索同 brief 历史报告并附一行经验（80 字截断、失败不阻断） | 已完成 |
 | ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
-| 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |
+| 压缩挂点补全 | ~~finalizer / 旁路 / 指引三条未挂~~ → **裁决：挂点维持 4 个，finalizer 明确不挂**（不消费消息历史，包装会误触主线压缩——实测回归）；旁路/指引单发无历史累积，压缩无对象 | 已裁（不挂） |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
 | 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输与握手发现 v2.2 开做（三裁已定） | UX 票 |
 | 前端界面（UX-3） | 片 1–4 已落（传输层 / Ink 骨架 / 面板按键 / 产物下载与 engine 并联）；仅余片 5 收口 | UX 票 |
