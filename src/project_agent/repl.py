@@ -86,14 +86,49 @@ class ReplHost:
         # /compact 产生的待并压缩批：下轮 invoke 携带进图（经 add_messages
         # reducer 归约——否则 checkpointer 里的历史永远未压）
         self._pending_compression: dict[str, Any] | None = None
+        # UX-2 第二片：本会话产生的下行消息（transport 与终端共享同一实现）。
+        # None = 不收集（裸终端直接跑 run() 的历史路径）
+        self._messages: list[dict[str, Any]] | None = None
+        self._collect = False
+
+    # ---- 协议消息出口（终端降级渲染与 WebSocket 共用同一条路径）----
+
+    def _emit(self, message: dict[str, Any]) -> None:
+        """一条下行消息 → 终端行（降级渲染）+ 可选收集（collect=True）。"""
+        if self._collect and self._messages is not None:
+            self._messages.append(message)
+        for line in default_rendering(message["type"], message):
+            self._io.write_line(line)
+
+    def _notice(self, text: str) -> None:
+        """即时提示通道（命令回执 / 状态 / 错误文案）。"""
+        self._emit(encode("notice", text=text))
+
+    def begin_collect(self) -> None:
+        """开始收集下行消息（transport 用；终端路径不调用）。"""
+        self._messages = []
+        self._collect = True
+
+    def handle_input(self, text: str) -> list[dict[str, Any]]:
+        """一条用户输入 → 本次产生的下行消息列表（stdin 与 WebSocket 共用）。
+
+        返回值为**本次输入新产生**的消息（不含历史）；`quit` 由调用方据
+        farewell 消息判定退出。终端 `run()` 走的是同一批内部方法，故行为一致。
+        """
+        self.begin_collect()
+        try:
+            if text.startswith("/"):
+                self._dispatch(text)
+            else:
+                self._run_round(text)
+            return list(self._messages or [])
+        finally:
+            self._collect = False
 
     def run(self) -> None:
         self._seed_state_from_checkpoint()
         # UX-2：开场序列走协议消息层（ready）——前端与终端降级共用同一渲染
-        for line in default_rendering(
-            "ready", encode("ready", banner=_BANNER, opening_prompt=_OPENING_PROMPT)
-        ):
-            self._io.write_line(line)
+        self._emit(encode("ready", banner=_BANNER, opening_prompt=_OPENING_PROMPT))
         while True:
             line = self._io.read_line()
             if line is None:  # EOF
@@ -110,8 +145,7 @@ class ReplHost:
 
     def _farewell(self) -> None:
         """会话终止：走 farewell 消息（`/exit`、EOF 共用一条渲染路径）。"""
-        for line in default_rendering("farewell", encode("farewell", text=_FAREWELL)):
-            self._io.write_line(line)
+        self._emit(encode("farewell", text=_FAREWELL))
 
     def _seed_state_from_checkpoint(self) -> None:
         """跨进程续跑：首条输入前从 checkpointer 回灌末态。
@@ -136,7 +170,7 @@ class ReplHost:
             self._farewell()
             return True
         if command == "/help":
-            self._io.write_line("可用命令：" + " ".join(_COMMANDS))
+            self._notice("可用命令：" + " ".join(_COMMANDS))
             return False
         if command == "/status":
             self._status()
@@ -153,7 +187,7 @@ class ReplHost:
         if command == "/skills":
             self._skills(text)
             return False
-        self._io.write_line(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
+        self._notice(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
 
     def _mode(self, text: str) -> None:
@@ -167,15 +201,15 @@ class ReplHost:
         arg = raw_arg.lower()
         if not arg:
             options = "、".join(_MODE_LABELS.values())
-            self._io.write_line(f"当前决策模式：{current or '未设置'}。可选：{options}")
+            self._notice(f"当前决策模式：{current or '未设置'}。可选：{options}")
             return
         new_mode = _MODE_ALIASES.get(arg) or _MODE_ALIASES.get(raw_arg)
         if new_mode is None:
             options = "、".join(_MODE_LABELS.values())
-            self._io.write_line(f"未识别模式 {raw_arg!r}。当前：{current or '未设置'}。可选：{options}")
+            self._notice(f"未识别模式 {raw_arg!r}。当前：{current or '未设置'}。可选：{options}")
             return
         self._last_state["decision_mode"] = new_mode
-        self._io.write_line(f"决策模式已更新：{new_mode}")
+        self._notice(f"决策模式已更新：{new_mode}")
 
     def _skills(self, text: str) -> None:
         """/skills：查/改技能包清单（用户故事 3——运行时配置入口）。
@@ -185,7 +219,7 @@ class ReplHost:
         packs = list(self._last_state.get("skill_packs") or [])
         arg = text[len("/skills"):].strip()
         if not arg:
-            self._io.write_line(
+            self._notice(
                 f"已选技能包：{', '.join(packs) if packs else '（无）'}"
             )
             return
@@ -195,19 +229,19 @@ class ReplHost:
             if pack not in packs:
                 packs.append(pack)
                 self._last_state["skill_packs"] = packs
-                self._io.write_line(f"已添加技能包：{pack}")
+                self._notice(f"已添加技能包：{pack}")
             else:
-                self._io.write_line(f"技能包 {pack} 已在清单中。")
+                self._notice(f"技能包 {pack} 已在清单中。")
         elif sub == "remove" and name.strip():
             pack = name.strip()
             if pack in packs:
                 packs.remove(pack)
                 self._last_state["skill_packs"] = packs
-                self._io.write_line(f"已移除技能包：{pack}")
+                self._notice(f"已移除技能包：{pack}")
             else:
-                self._io.write_line(f"技能包 {pack} 不在清单中。")
+                self._notice(f"技能包 {pack} 不在清单中。")
         else:
-            self._io.write_line("用法：/skills [add|remove] {包名}")
+            self._notice("用法：/skills [add|remove] {包名}")
 
     def _ask_for_help(self, text: str) -> None:
         """10 票旁路：/ask-for-help {question}——AskBypass 独立历史作答。
@@ -216,15 +250,15 @@ class ReplHost:
         """
         question = text[len("/ask-for-help"):].strip()
         if not self._last_state.get("build_way"):
-            self._io.write_line(_ASK_OUTSIDE_WORKFLOW)
+            self._notice(_ASK_OUTSIDE_WORKFLOW)
             return
         if self._ask_bypass is None:
-            self._io.write_line(_ASK_NOT_WIRED)
+            self._notice(_ASK_NOT_WIRED)
             return
         if not question:
-            self._io.write_line("用法：/ask-for-help {问题}")
+            self._notice("用法：/ask-for-help {问题}")
             return
-        self._io.write_line(self._ask_bypass.ask(question))
+        self._notice(self._ask_bypass.ask(question))
 
     def _compact(self) -> None:
         """/compact 手动兜底（08 票）：立即触发等价压缩（manual=True）。
@@ -233,7 +267,7 @@ class ReplHost:
         并入 REPL 持有状态——下轮 invoke 携带；不进主图。
         """
         if self._cheap_model is None:
-            self._io.write_line(_COMPACT_NOT_ENABLED)
+            self._notice(_COMPACT_NOT_ENABLED)
             return
         updates = run_compression_check(
             messages=self._last_state.get("actor_messages") or [],
@@ -245,13 +279,13 @@ class ReplHost:
             manual=True,
         )
         if updates is None:
-            self._io.write_line("无可压缩轮次（3 轮保护或无候选）。")
+            self._notice("无可压缩轮次（3 轮保护或无候选）。")
             return
         self._last_state.update(updates)
         self._pending_compression = updates
         packs = updates.get("compacted_rounds") or []
         covered = sum(end - start + 1 for start, end in packs)
-        self._io.write_line(f"已压缩 {covered} 轮（{len(packs)} 包）；磁盘【R#】原文不受影响。")
+        self._notice(f"已压缩 {covered} 轮（{len(packs)} 包）；磁盘【R#】原文不受影响。")
 
     def _run_round(self, text: str) -> None:
         # 11：demo 构建中的输入先过三层混合路由（斜杠已在 run() 前分流）
@@ -277,7 +311,7 @@ class ReplHost:
         update = fusion_update(self._last_state, text)
         if not update:
             # FINISHED 终态（01 欠账 b）：不再融合不再 invoke
-            self._io.write_line(_TERMINAL_NOTICE)
+            self._notice(_TERMINAL_NOTICE)
             return
         # 14 票：首条输入随行种入（仅 state 无值的键；一次性）
         if self._initial_dashboard and not self._last_state:
@@ -304,13 +338,11 @@ class ReplHost:
         payload = result.get("turn_end_payload") or {}
         # UX-2：轮终交付统一走协议消息层（同一份折叠逻辑喂前端与终端降级）
         lines = render_breakpoint_lines(reason, payload)
-        message = round_end_message(reason, payload, lines)
-        for line in default_rendering(message["type"], message):
-            self._io.write_line(line)
+        self._emit(round_end_message(reason, payload, lines))
 
     def _status(self) -> None:
         if not self._last_state:
-            self._io.write_line("尚无会话状态。")
+            self._notice("尚无会话状态。")
             return
         for field in _STATUS_FIELDS:
-            self._io.write_line(f"{field}: {self._last_state.get(field, '')}")
+            self._notice(f"{field}: {self._last_state.get(field, '')}")

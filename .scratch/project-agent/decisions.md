@@ -275,6 +275,17 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 验证：spec 500 行 / 75 用户故事 / 20 行欠账 / 表格全闭合；GLOSSARY 词条 43 → 49 且哨兵绿；882 测试全绿、ruff 干净。
 - **未修（留待用户裁）**：D 节建议的三份 ADR（文案可读性契约 / 配置格式 / 单题问卷）——属"补决策记录"而非冲突，不擅立；13 票 C 节问卷文案表被 14 票整表替换但票面未改口（票面 stale，需重写票 13 或加作废标记）。
 
+**Q71（UX-2 传输三裁 + 片 1 落地，2026-10-26 上午，用户裁定）**：用户对票 16 预留的三个待裁点一口气裁定，按 Q68 纪律**先回填 spec v2.2 再动代码**。
+- **三裁**：①**随机端口 + 握手文件**——后端 bind `127.0.0.1:0` 由 OS 分配，`{pid, port, thread_id, protocol_version, started_at}` 原子写入 `<cwd>/.project-agent/handshake.json`；前端读文件连接，不固定端口（避免撞端口与多项目并行冲突）。②**前端产物首次运行下载**——wheel 保持纯 Python 不打包前端，首次运行下载到 `~/.project-agent/frontend/<version>/` 并校验；失败/拒绝 → 退终端降级渲染。③**断线复用 thread_id 续跑**——重连带握手文件的 thread_id，同 checkpointer 同 thread，末态由 `_seed_state_from_checkpoint` 重建；不新开会话，显式放弃走 `--new-session`。
+- **spec v2.2**：新增『传输层（UX-2 第二片）』节承载三裁 + 三条硬约束；版本志补 v2.2；来源行与 Further Notes 统一 Q1–Q71；欠账表"前端传输层"行改口为"v2.2 开做（三裁已定）"。**顺带修掉版本志顺序错误**（v2.1 曾排在 v2.0 之上）。
+- **repl.py 结构改动（本片唯一）**：新增 `_emit`（下行消息 → 终端降级渲染 + 可选收集）/ `_notice`（即时提示）/ `begin_collect` / **`handle_input(text) -> list[dict]`**；22 处 `_io.write_line` 直写全部改走 `_notice`，轮终交付改走 `_emit(round_end_message(...))`。**终端行为逐字不变**（882 旧测试全绿为判据），而 WebSocket 拿到的是同一份结构化消息——两个消费者共用一条实现，不是两套逻辑。
+- **transport.py 新模块**：`Handshake` 数据类 + `write_handshake`（**原子写**：临时文件 + `os.replace`，防前端读到半截 JSON）/ `read_handshake`（六字段校验，bool 冒充 int 拦）/ `clear_handshake` / `is_stale`（pid 存活判定）/ `new_handshake` / `ProtocolServer`（收上行 JSON → `decode` 校验 → 分发；坏 JSON 或不合协议回 `notice` 而非崩溃）/ `is_quit` / `make_serve`（**延迟 import websockets**，顶层不引网络库——Q39 红线同法）/ `_bound_port`（从 Server.sockets 取实际端口，版本形态兜底）。
+- **测试 882 → 906（+24）**：握手文件往返/原子写/父目录/损坏/缺字段/bool 冒充/清理幂等/陈废三态；上行分发五路（正常 input、quit、坏 JSON、未知 type、缺字段）；`is_quit`；**真实 WebSocket 端到端**（临时目录起服务 → 等握手文件 → 读端口 → 真连 → input 收 notice → 撤销 → 断言握手文件被清理）；两条 AST 红线哨兵（不依赖图/模型；顶层不 import websockets）。
+- **依赖**：`websockets>=12` 补进 pyproject `dependencies`（venv 中原已存在但从未声明——本身是一处欠账，现已补）。
+- **冒烟（真实链路）**：起服务 → 握手文件 `pid=24200 port=51296 thread=t-smoke v1` → 陈废判定 False → 连上后「我想做一个记账 CLI」收到 `round_end`（含结构化 payload 与 `lines`）→「嗯」收到 `round_end` → `quit` 收到 `farewell` → 握手文件已清理；同时终端路径七项断言全绿。
+- **票 16 改为 in_progress**：三裁从"未定需先裁"挪到"已裁三点"，片 1 标记为本片；片 4 改为"产物下载与 engine 并联"。
+- 未做（后续片）：前端 Ink 骨架（片 2）、面板按键（片 3）、产物下载与 engine 并联（片 4）、收口（片 5）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）
