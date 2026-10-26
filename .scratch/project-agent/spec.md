@@ -511,17 +511,17 @@ Status: ready-for-agent
 | SkillRecommend 工具本体 | ~~无实现~~ → **已落地**：`recommend_skills` 按用途与已选包排序，理由 ≤20 字代码截断；空清单不推荐 | 已完成 |
 | `/teach-me off` 恢复路径 | ~~spec 命令表与代码双缺~~ → **已落地**：`/teach-me` 命令（`off` 清回 `""` / `always` 开启 / 无参查状态） | 已完成 |
 | 桌面密钥文件读取 | ~~代码无此路径~~ → **已落地**：首启无配置时探 `<home>/Desktop/storage/apikey.txt`（裸 key 与 `api_key=` 两形态、BOM 剥）；显式配置优先；`PROJECT_AGENT_API_KEY_FILE` 显式覆盖 | 已完成 |
-| 技能包两级（包 vs 技能） | ~~只有扁平串~~ → **两级已落地**：`SkillHead.pack` + `PACKS` + `skill_heads(packs)` 按包筛选、`known_packs()`；`skill_body` 仍为模拟全文桩（**真实 SKILL.md 文件加载未做**） | 技能票（余桩替换） |
+| 技能包两级（包 vs 技能） | ~~只有扁平串~~ → **两级已落地**：`SkillHead.pack` + `PACKS` + `skill_heads(packs)` 按包筛选、`known_packs()`；`skill_body` 仍为模拟全文桩（**真实 SKILL.md 文件加载未做**） | 已完成（余桩替换） |
 | NotepadAdd 工具本体 | 工具环分派**已接**（图内 runner）；文本桥"记录："保留为兼容兜底 | 已完成 |
 | 旁路历史持久化 | ~~历史未落盘（重启即失）~~ → **已落地**：历史落 <state 同目录>/ask.history.json（原子写、损坏容错、落盘失败不砸问答） | 已完成 |
 | current_scope 写者 | ~~actor 声明未实现~~ → **已落地**：响应含行首「作用域：{scope}」即写 current_scope | 已完成 |
 | verify_link 接入指引 | ~~链接未验证~~ → **已落地**：ssist_link.annotate_links 抽取链接并就地标「（链接未验证）」；link_fetch 由 uild_graph 注入（默认 None 不改文本） | 已完成 |
 | final_report 检索注入 | ~~ask_tasks 未做检索注入~~ → **已落地**：make_ask_tasks_node(store) 检索同 brief 历史报告并附一行经验（80 字截断、失败不阻断） | 已完成 |
-| ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
-| 压缩挂点补全 | ~~finalizer / 旁路 / 指引三条未挂~~ → **裁决：挂点维持 4 个，finalizer 明确不挂**（不消费消息历史，包装会误触主线压缩——实测回归）；旁路/指引单发无历史累积，压缩无对象 | 已裁（不挂） |
+| ask 档普通讲解的循环 | ~~内容循环仍单发~~ → **裁为不循环**：选"简短讲解"即当场决定"要讲解"，走 auto 同款单发普通指引、不再重问（`guidance_ask_consumed`）；追问循环会与"要的就是短"的裁定冲突 | 已完成（裁为单发） |
+| 压缩挂点补全 | ~~finalizer / 旁路 / 指引三条未挂~~ → **裁决：挂点维持 4 个，finalizer 明确不挂**（不消费消息历史，包装会误触主线压缩——实测回归）；旁路/指引单发无历史累积，压缩无对象 | 已完成（裁为不挂） |
 | 官方 LangGraph Store | 只有 InMemory 轻实现，跨会话长期记忆不可用（ADR-0004 已记原因） | 记忆票 |
-| 前端传输层（UX-2 余下） | 协议消息表与纯翻译层已落 `messages.py`（v2.1）；WebSocket 传输与握手发现 v2.2 开做（三裁已定） | UX 票 |
-| 前端界面（UX-3） | 片 1–4 已落（传输层 / Ink 骨架 / 面板按键 / 产物下载与 engine 并联）；仅余片 5 收口 | UX 票 |
+| 前端传输层（UX-2 余下） | ~~未做~~ → **已落地**：`transport.py`（WebSocket + 随机端口 + 握手文件 + 延迟导入）+ 真实端到端测试 | 已完成 |
+| 前端界面（UX-3） | ~~未做~~ → **五片全部落地**（传输层 / Ink 骨架 / 面板按键 / 产物分发与 engine 并联 / 收口勾票）；票 16 已 done | 已完成 |
 | guidance_read_version 门归属 | assembler 先消费 vs 指引通道自消费，未终裁 | 待裁 |
 | planner 模板覆盖修复 todo | 终检环回 planner 会覆盖修复项，持久化未定 | 待裁 |
 | nodes.py 相位拆分 | 单文件 1700+ 行，docstring 导航已加，物理拆分未做（17 票后增至 1830 行，拆分更紧迫） | 待裁 |
