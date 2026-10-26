@@ -17,7 +17,12 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
-from project_agent.model_client import ModelResult, ModelUsage
+from project_agent.model_client import (
+    ModelResult,
+    ModelUsage,
+    ToolAwareResult,
+    ToolCall,
+)
 
 _SCHEME = re.compile(r"^https?://", re.IGNORECASE)
 
@@ -102,5 +107,51 @@ class OpenAICompatClient:
         response = self._chat.invoke([dict(m) for m in messages])
         return ModelResult(text=_response_text(response), usage=_response_usage(response))
 
+    def complete_with_tools(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        *,
+        role: str,
+        thread_id: str,
+    ) -> ToolAwareResult:
+        """17 票：带 function schema 请求，解析模型返回的 tool_calls。
+
+        `bind_tools` 是 langchain 官方的每请求工具绑定通道（不改客户端构造态）；
+        模型不请求工具时 `tool_calls` 为空，调用方视为本轮终稿。
+        """
+        bound = self._chat.bind_tools([dict(tool) for tool in tools])
+        response = bound.invoke([dict(m) for m in messages])
+        return ToolAwareResult(
+            text=_response_text(response),
+            tool_calls=_response_tool_calls(response),
+            usage=_response_usage(response),
+        )
+
+
+def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
+    """从 langchain AIMessage 取 tool_calls（已是 dict 形态：name/args/id）。"""
+    raw = getattr(response, "tool_calls", None)
+    if not isinstance(raw, list):
+        return ()
+    calls: list[ToolCall] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            continue
+        name = str(item.get("name") or "")
+        if not name:
+            continue
+        args = item.get("args")
+        arguments = dict(args) if isinstance(args, Mapping) else {}
+        calls.append(
+            ToolCall(
+                id=str(item.get("id") or f"call_{index}"),
+                name=name,
+                arguments=arguments,
+            )
+        )
+    return tuple(calls)
+
 
 __all__ = ["OpenAICompatClient", "normalize_base_url"]
+

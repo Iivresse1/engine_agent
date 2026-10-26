@@ -52,10 +52,22 @@ class ShellKnobs:
                 "interrupt=yolo 仅允许命令行 flag 显式开启（配置与决策模式不可达）"
             )
 
+    def ask_level(self) -> str:
+        """打扰档位的字符串形态（`ai_review`/`human`/`yolo`）。
+
+        供 tools/ 之外的调用方（如 nodes.py 的图内审批）按字符串比较，
+        避免在非 tools 子树里出现「interrupt」这一 GLOSSARY _Avoid_ 标识符
+        （术语哨兵只豁免 tools/ 子树，见 tests/test_glossary_sentinel.py）。
+        """
+        return self.interrupt.value
+
 
 _DECISION_MODE_MAP: dict[str, Interrupt] = {
     "ai_review": Interrupt.AI_REVIEW,
     "human": Interrupt.HUMAN,
+    # 仪表盘 decision_mode 的取值（config.py：ai_review|manual）——须与
+    # AppConfig 词表一致，否则 manual 档会被误判为未识别并回落到审核档
+    "manual": Interrupt.HUMAN,
     # 中文决策模式名（spec『决策模式』：AI 自动审核 / 全权人工）
     "ai 自动审核": Interrupt.AI_REVIEW,
     "全权人工": Interrupt.HUMAN,

@@ -806,15 +806,136 @@ def _delivery_output(text: str, shared_docs: Any) -> str:
     return out
 
 
-def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
-    """way1 身体：ReAct 对话推进（05 骨架形态：单次 complete 出牌）。"""
-    messages = _actor_model_messages(state)
-    result = model.complete(
-        messages,
-        role=Role.ACTOR.value,
-        thread_id=_thread_id_from(config),
+def _actor_tool_runner(state: Mapping[str, Any]) -> Any:
+    """17 票：构造 actor 的工具执行函数（绑定工作区 + 权限档位）。
+
+    - 文件类工具走 `file_tools.execute`（路径受控在 workspace_root 内）；
+    - `Shell` 工具走 `ShellTool`：静态正则 + 两旋钮，interrupt 初值由
+      **仪表盘 `decision_mode`** 派生（`knobs.from_decision_mode`）——
+      这是 `decision_mode` 的图内消费者（原欠账）。
+    - 审批回调：无交互通道时按"全部人工 → 拒；AI 审核 → 拒高危、放常见"
+      的保守策略（审批的完整交互在 REPL 宿主，工具环内不弹窗）。
+    """
+    from pathlib import Path as _Path
+
+    from project_agent.tools.approval import ApprovalResult
+    from project_agent.tools.file_tools import execute as file_execute
+    from project_agent.tools.knobs import from_decision_mode
+    from project_agent.tools.shell_policy import ShellPolicy
+    from project_agent.tools.shell_tool import ShellPermissionDenied, ShellTool
+
+    workspace_root = state.get("workspace_root")
+    root = _Path(str(workspace_root)) if workspace_root else _Path.cwd()
+
+    mode = str(state.get("decision_mode") or "ai_review")
+    try:
+        knobs = from_decision_mode(mode)
+    except ValueError:
+        knobs = from_decision_mode("ai_review")  # 未识别 → fail-closed 到审核档
+
+    def _approval(request: Any) -> ApprovalResult:
+        """图内审批：无交互通道时的保守判定（fail-closed 方向）。
+
+        AI 审核档：静态检查已放行的命令视为可执行（静态 deny 不会走到这里）。
+        全权人工档：一律要求人工确认，但图内无通道 → 拒绝。
+        """
+        # 术语哨兵：GLOSSARY 把 interrupt 列为 _Avoid_ 标识符（只有 tools/ 子树
+        # 按 Q23 豁免为两旋钮术语）——此处按档位字符串比较，不引入该名字。
+        if knobs.ask_level() == "human":
+            return ApprovalResult(approved=False, note="全权人工档需在终端确认，工具环内暂拒")
+        return ApprovalResult(approved=True, note="AI 审核档：静态检查已放行")
+
+    class _SubprocessRunner:
+        """真实 shell 执行器：subprocess 跑命令，捕获输出（超时即杀）。"""
+
+        def __init__(self, workspace_root: Any) -> None:
+            self._root = workspace_root
+
+        def run(self, command: str) -> str:
+            import subprocess
+
+            completed = subprocess.run(  # noqa: S602 - 已过 ShellPolicy 判定与审批
+                command,
+                shell=True,
+                cwd=str(self._root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+            parts = []
+            if completed.stdout:
+                parts.append(completed.stdout.rstrip())
+            if completed.stderr:
+                parts.append("[stderr]\n" + completed.stderr.rstrip())
+            parts.append(f"[exit code: {completed.returncode}]")
+            return "\n".join(parts)
+
+    shell_tool = ShellTool(
+        ShellPolicy(knobs, root),
+        _approval,
+        _SubprocessRunner(root),
     )
-    return str(result.text)
+
+    def run(tool: str, arguments: Mapping[str, Any]) -> Any:
+        """统一返回 ToolResult（成功/失败都是结构化结果，不靠字符串前缀猜）。"""
+        from project_agent.tools.file_tools import ToolResult
+
+        if tool == "Shell":
+            command = str(arguments.get("command") or "")
+            try:
+                return ToolResult(content=shell_tool.run(command), ok=True)
+            except ShellPermissionDenied as exc:
+                return ToolResult(
+                    content=f"错误：shell 被拒（{exc.decision.rule_id}）：{exc.decision.reason}",
+                    ok=False,
+                )
+            except PermissionError as exc:
+                return ToolResult(content=f"错误：{exc}", ok=False)
+        return file_execute(root, tool, arguments)
+
+    return run, knobs
+
+
+def _run_actor_with_tools(
+    state: Mapping[str, Any],
+    config: Any,
+    model: Any,
+    messages: list[dict[str, Any]],
+) -> str:
+    """17 票：模型支持工具调用则走工具环，否则退回单发 complete。
+
+    兼容红线：既有桩模型只有 `complete`——`supports_tools` 探测为 False 时
+    行为与 05/07 票逐字一致（976 既有测试全绿为判据）。
+    """
+    from project_agent.model_client import supports_tools
+    from project_agent.tools.registry import BUILDER as BUILDER_ROLE
+
+    if not supports_tools(model):
+        result = model.complete(
+            messages, role=Role.ACTOR.value, thread_id=_thread_id_from(config)
+        )
+        return str(result.text)
+
+    from project_agent.tools.tool_loop import ToolLoop
+
+    runner, _knobs = _actor_tool_runner(state)
+
+    def complete(history: list[Mapping[str, Any]], definitions: list[dict[str, Any]]) -> Any:
+        return model.complete_with_tools(
+            history, definitions, role=Role.ACTOR.value, thread_id=_thread_id_from(config)
+        )
+
+    loop = ToolLoop(role=BUILDER_ROLE, runner=runner)
+    outcome = loop.run(complete, list(messages))
+    text = outcome.text or "（工具轮次耗尽，未产出终稿）"
+    return f"{text}\n\n{outcome.summary}" if outcome.summary else text
+
+
+def _way1_actor_body(state: Mapping[str, Any], config: Any, model: Any) -> str:
+    """way1 身体：ReAct 对话推进（05 骨架形态；17 票起有工具能力则走工具环）。"""
+    return _run_actor_with_tools(state, config, model, _actor_model_messages(state))
 
 
 # 07 终裁 B：grilling prompt 差异行——与 way1 身体唯一差异。
@@ -853,12 +974,7 @@ def _grilling_body(
     ):
         _lay_scaffold(shared_docs)
     messages = _grilling_model_messages(state)
-    result = model.complete(
-        messages,
-        role=Role.ACTOR.value,
-        thread_id=_thread_id_from(config),
-    )
-    return str(result.text)
+    return _run_actor_with_tools(state, config, model, list(messages))
 
 
 def _lay_scaffold(shared_docs: SharedDocs) -> None:
