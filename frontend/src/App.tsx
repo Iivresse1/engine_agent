@@ -14,14 +14,15 @@ import type { DownMessage } from "./protocol.js";
 import { displayWidth } from "./width.js";
 
 /** 会话里累积的一条可显示内容。 */
-type TranscriptEntry =
+export type TranscriptEntry =
   | { kind: "line"; text: string; tone: "normal" | "dim" | "notice" }
   | { kind: "block"; reason: string; lines: string[] }
   | { kind: "teach"; path: string; round: number };
 
 const MAX_TRANSCRIPT = 200;
 
-function toEntries(message: DownMessage): TranscriptEntry[] {
+/** 下行消息 → 可显示条目（纯函数；界面测试直接断言此函数）。 */
+export function toEntries(message: DownMessage): TranscriptEntry[] {
   switch (message.type) {
     case "ready":
       return [
@@ -48,36 +49,72 @@ export interface AppProps {
   connection: Connection | null;
   /** 连接失败时的降级提示（前端未接线 → 后端裸终端） */
   degradedReason?: string;
+  /**
+   * 下行消息订阅（依赖注入，便于测试与替换）：
+   * 传入 (listener) => 取消订阅函数。默认走模块内事件桥。
+   */
+  subscribe?: (listener: (message: DownMessage) => void) => () => void;
 }
 
-export function App({ connection, degradedReason }: AppProps): React.ReactElement {
+export function App({
+  connection,
+  degradedReason,
+  subscribe,
+}: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [draft, setDraft] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
+  // 片 3：面板折叠（Ctrl+O 切换）/ 教学页提示（Ctrl+T 展开最近一页）
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [teachPanelOpen, setTeachPanelOpen] = useState(false);
 
   // 下行消息 → 累积显示（本组件不保存业务状态，只是渲染队列）
   useEffect(() => {
-    if (connection === null) return;
-    // 连接对象由 main 注入 onMessage 回调，这里通过全局事件桥接
     const listener = (message: DownMessage): void => {
       setEntries((prev) => {
         const next = [...prev, ...toEntries(message)];
         return next.slice(-MAX_TRANSCRIPT);
       });
+      if (message.type === "teach_page") {
+        setTeachPanelOpen(true);
+      }
       if (message.type === "farewell") {
         setTimeout(() => exit(), 50);
       }
     };
-    registerListener(listener);
-    return () => unregisterListener(listener);
-  }, [connection, exit]);
+    const unsubscribe =
+      subscribe !== undefined ? subscribe(listener) : defaultSubscribe(listener);
+    return unsubscribe;
+  }, [subscribe, exit]);
 
-  // 采集按键（Enter 提交，Esc 退出）
+  // 最近一条状态行（面板折叠用；前端不解析 Dashboard，只显示 /status 的 notice）
+  const statusLine = [...entries]
+    .reverse()
+    .find((entry) => entry.kind === "line" && entry.text.startsWith("task_brief:"));
+
+  // 最近一次断点（面板折叠用）
+  const lastBreakpoint = [...entries]
+    .reverse()
+    .find((entry): entry is Extract<TranscriptEntry, { kind: "block" }> => entry.kind === "block");
+
+  const lastTeach = [...entries]
+    .reverse()
+    .find((entry): entry is Extract<TranscriptEntry, { kind: "teach" }> => entry.kind === "teach");
+
+  // 采集按键（Enter 提交，Esc 退出，Ctrl+O 面板，Ctrl+T 教学页）
   useInput((input, key) => {
     if (key.escape) {
       connection?.send({ type: "quit" });
       exit();
+      return;
+    }
+    if (key.ctrl && input === "o") {
+      setPanelOpen((prev) => !prev);
+      return;
+    }
+    if (key.ctrl && input === "t") {
+      setTeachPanelOpen((prev) => !prev);
       return;
     }
     if (key.return) {
@@ -102,6 +139,43 @@ export function App({ connection, degradedReason }: AppProps): React.ReactElemen
   });
 
   return (
+    <TranscriptView
+      entries={entries}
+      draft={draft}
+      submitted={submitted}
+      degradedReason={degradedReason}
+      panelOpen={panelOpen}
+      teachPanelOpen={teachPanelOpen}
+      statusLine={statusLine}
+      lastBreakpoint={lastBreakpoint}
+      lastTeach={lastTeach}
+    />
+  );
+}
+
+/** 纯展示视图（无 hooks/无副作用）——可用 renderToString 直接做渲染断言。 */
+export function TranscriptView({
+  entries,
+  draft,
+  submitted,
+  degradedReason,
+  panelOpen,
+  teachPanelOpen,
+  statusLine,
+  lastBreakpoint,
+  lastTeach,
+}: {
+  entries: TranscriptEntry[];
+  draft: string;
+  submitted: string | null;
+  degradedReason?: string | undefined;
+  panelOpen: boolean;
+  teachPanelOpen: boolean;
+  statusLine: TranscriptEntry | undefined;
+  lastBreakpoint: Extract<TranscriptEntry, { kind: "block" }> | undefined;
+  lastTeach: Extract<TranscriptEntry, { kind: "teach" }> | undefined;
+}): React.ReactElement {
+  return (
     <Box flexDirection="column">
       {degradedReason !== undefined ? (
         <Box marginBottom={1}>
@@ -111,6 +185,12 @@ export function App({ connection, degradedReason }: AppProps): React.ReactElemen
       {entries.map((entry, index) => (
         <EntryView key={index} entry={entry} />
       ))}
+      {panelOpen ? (
+        <StatusPanel statusLine={statusLine} lastBreakpoint={lastBreakpoint} />
+      ) : null}
+      {teachPanelOpen && lastTeach !== undefined ? (
+        <TeachPanel path={lastTeach.path} round={lastTeach.round} />
+      ) : null}
       <Box>
         <Text color="cyan">{"❯ "}</Text>
         <Text>{draft}</Text>
@@ -121,9 +201,16 @@ export function App({ connection, degradedReason }: AppProps): React.ReactElemen
           <Text color="gray">{`· 已提交 ${displayWidth(submitted)} 列`}</Text>
         </Box>
       ) : null}
+      {/* 按键提示行（常驻，观感对齐 Claude Code） */}
+      <Box marginTop={1}>
+        <Text color="gray">{KEY_HINTS}</Text>
+      </Box>
     </Box>
   );
 }
+
+/** 常驻按键提示（片 3）。 */
+const KEY_HINTS = "Enter 提交 · Ctrl+O 状态面板 · Ctrl+T 教学页 · Esc 退出";
 
 function EntryView({ entry }: { entry: TranscriptEntry }): React.ReactElement {
   if (entry.kind === "line") {
@@ -148,16 +235,52 @@ function EntryView({ entry }: { entry: TranscriptEntry }): React.ReactElement {
   );
 }
 
-// 极简事件桥（main 与 App 之间的下行消息通道；不做业务逻辑）
+/** 状态面板（片 3）：折叠显示最近状态行与最近断点——前端不解析 Dashboard。 */
+function StatusPanel({
+  statusLine,
+  lastBreakpoint,
+}: {
+  statusLine: TranscriptEntry | undefined;
+  lastBreakpoint: Extract<TranscriptEntry, { kind: "block" }> | undefined;
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginY={1}>
+      <Text color="gray">{"状态面板（Ctrl+O 收起）"}</Text>
+      {statusLine !== undefined && statusLine.kind === "line" ? (
+        <Text>{statusLine.text}</Text>
+      ) : (
+        <Text color="gray">{"尚无 /status 输出"}</Text>
+      )}
+      {lastBreakpoint !== undefined ? (
+        <Text color="gray">{`最近断点：${lastBreakpoint.reason}（${lastBreakpoint.lines.length} 行）`}</Text>
+      ) : (
+        <Text color="gray">{"尚无断点"}</Text>
+      )}
+    </Box>
+  );
+}
+
+/** 教学页面板（片 3）：显示路径与轮次，提示可打开（前端不内联渲染 HTML）。 */
+function TeachPanel({ path, round }: { path: string; round: number }): React.ReactElement {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1} marginY={1}>
+      <Text color="green">{`教学页（第 ${round} 轮，Ctrl+T 收起）`}</Text>
+      <Text>{path}</Text>
+      <Text color="gray">{"用浏览器打开该文件查看图文讲解"}</Text>
+    </Box>
+  );
+}
+
+// 默认订阅通道（main 与 App 之间的下行消息桥；不做业务逻辑）。
+// 组件测试用 subscribe prop 注入，不依赖此单例。
 type Listener = (message: DownMessage) => void;
 const listeners = new Set<Listener>();
 
-export function registerListener(listener: Listener): void {
+export function defaultSubscribe(listener: Listener): () => void {
   listeners.add(listener);
-}
-
-export function unregisterListener(listener: Listener): void {
-  listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function emitDown(message: DownMessage): void {

@@ -296,6 +296,15 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **`.gitignore` 补**：`frontend/node_modules/`、`frontend/dist/` 不入库；锁文件 `pnpm-lock.yaml` 入库保证可复现。
 - **未做**：片 3（面板/按键细化）、片 4（产物下载 + engine 并联）、片 5（收口）。
 
+**Q71 再续（UX-3 片 3：面板与按键，2026-10-26 中午）**：前端从"能收发"推进到"能看"。
+- **常驻按键提示行**：`Enter 提交 · Ctrl+O 状态面板 · Ctrl+T 教学页 · Esc 退出`（观感对齐 Claude Code 的按键提示惯例）。
+- **状态面板（Ctrl+O 折叠）**：显示最近 `task_brief:` 状态行 + 最近断点（reason 与行数）。**前端不解析 Dashboard**——只显示 `/status` 的 notice 文本，业务状态仍在后端。
+- **教学页面板（Ctrl+T 折叠）**：显示路径与轮次；**前端不内联渲染 HTML**，只提示用浏览器打开（teach-me 页是自包含单文件，归浏览器）。
+- **可测性重构（本片真正的技术收获）**：把纯展示部分抽成 `TranscriptView`（**无 hooks、无副作用**），用 ink `renderToString` 做真实渲染断言 6 例；`toEntries` 导出为纯函数，面板取数直接测**真实实现**而非镜像副本（镜像必漂移）；`subscribe` 改为 **prop 注入**（去掉全局单例依赖），组件与测试都更干净。
+- **三条形态事实（踩过才知道）**：① Ink 8 无 `lastFrame`；② `renderToString` 不跑 effect，故**只有纯组件可做渲染断言**；③ Windows 无 `pty`/`termios`，PTY 抓帧不可用。这三点合起来使"纯视图 + renderToString"成为唯一可靠的渲染测试路径。
+- 测试：前端 12 → **26**（+6 渲染 +8 面板取数；原 5 例镜像测试重写为测真实实现）。
+- **未做**：片 4（产物下载 + engine 并联）、片 5（收口）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）

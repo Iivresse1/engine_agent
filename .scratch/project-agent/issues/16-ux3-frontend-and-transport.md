@@ -1,6 +1,6 @@
 # 16: UX-3 前端与传输 —— WebSocket 传输 + Ink 前端 + Bun 打包
 
-**Status:** in_progress（片 1 + 片 2 已落地：传输层 + Ink 骨架，906 后端测试 + 12 前端测试全绿；片 3–5 未完）
+**Status:** in_progress（片 1–3 已落地：传输层 + Ink 骨架 + 面板按键，906 后端测试 + 26 前端测试全绿；片 4–5 未完）
 **类型:** UX 实现票（ADR-0005 双运行时）
 **开票:** 2026-10-26
 **依赖:** 15 票（协议消息表 + 翻译层已落）
@@ -10,6 +10,9 @@
 - **片 2 Ink 骨架**：`frontend/`（TS + React 19 + Ink 8 + ws）——`protocol.ts`/`handshake.ts`/`client.ts`/`width.ts`/`App.tsx`/`main.tsx`；`tsc` 类型与构建零错；`vitest` 12 例（协议解析 6、握手 4、字宽 2）。前端只按 type 渲染、断点文案直用后端 `lines`。
 - **真实联调**：后端起在随机端口 57297，前端读握手文件发现并连上，跑通 `input → round_end → choice:build_way → farewell`。
 - **修掉一处前端校验漏洞**：`payload: []`（数组）曾被 `typeof === "object"` 漏过，与后端 `messages.py` 严格性不一致；已补 `Array.isArray` 拒绝，并造红转绿。
+- **片 3 面板与按键**：常驻按键提示行 `Enter 提交 · Ctrl+O 状态面板 · Ctrl+T 教学页 · Esc 退出`；`Ctrl+O` 折叠状态面板（显示最近 `task_brief:` 状态行与最近断点）；`Ctrl+T` 折叠教学页面板（显示路径/轮次，不内联渲染 HTML）；教学页到达时自动展开。
+- **可测性重构**：把纯展示部分抽成 `TranscriptView`（无 hooks/无副作用），用 ink `renderToString` 做真实渲染断言（6 例）；`toEntries` 导出为纯函数，面板取数直接测真实实现而非镜像副本。`subscribe` 改为 prop 注入（不再依赖全局单例），便于测试与替换。
+- **工具事实**：Ink 8 无 `lastFrame`；`renderToString` 不跑 effect（需纯组件才可渲染断言）；Windows 下无 `pty`/`termios`（PTY 冒烟不可用）——这三点促使"纯视图 + renderToString"成为唯一可靠的渲染测试路径。
 
 ## 目标
 
