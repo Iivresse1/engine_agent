@@ -1,6 +1,6 @@
-# 16: UX-3 前端与传输 —— WebSocket 传输 + Ink 前端 + Bun 打包
+# 16: UX-3 前端与传输 —— WebSocket 传输 + Ink 前端 + 产物分发
 
-**Status:** in_progress（片 1–4 已落地；仅余片 5 收口。928 后端测试 + 30 前端测试全绿）
+**Status:** done（2026-10-26 实现，片 1–5 全部完成；928 后端测试 + 30 前端测试全绿，ruff 干净）
 **类型:** UX 实现票（ADR-0005 双运行时）
 **开票:** 2026-10-26
 **依赖:** 15 票（协议消息表 + 翻译层已落）
@@ -63,9 +63,22 @@
 **片 4｜产物下载与 engine 并联**
 - 首次运行下载前端产物到 `~/.project-agent/frontend/<version>/`；`engine` 拉起前端，找不到/下载失败 → 退裸终端。
 
-**片 5｜收口（零新代码）**
-- 合并、全量测试、勾票、spec 同步。
+**片 5｜收口（零新代码）** ✅
+- 合并 `integration/project-agent` → `main`（merge 提交）；928 后端 + 30 前端全绿；票已勾；spec v2.2 已同步。
+
+## 收口结论（2026-10-26 12:05）
+
+| 项 | 结果 |
+|---|---|
+| 后端测试 | 928 passed（本票 +46：传输 24 + 启动器 21 + 其他） |
+| 前端测试 | 30 passed（协议 12 / 面板 8 / 渲染 6 / 入口 4） |
+| 前端类型检查 | `tsc --noEmit` 零错 |
+| ruff | All checks passed |
+| 冻结文件 | `nodes.py`/`graph.py`/`routing.py`/`protocol.py`/`messages.py` **零改动**（清单守住） |
+| 双运行时可用性 | `engine` 默认起前端 + 协议服务；无 Node/无产物/非 TTY → 自动退裸终端，零崩溃 |
+
+**后续未做（记在 spec 欠账，不属本票）**：真实发布源 URL 与产物上传流水线（`PROJECT_AGENT_FRONTEND_URL` 未配时一律退终端，功能安全）。
 
 ## 禁改清单
 
-- `nodes.py` / `graph.py` / `routing.py` / `protocol.py` / `messages.py`：本票零改动（传输层不得反向依赖图；协议表不动）。
+- `nodes.py` / `graph.py` / `routing.py` / `protocol.py` / `messages.py`：本票零改动（传输层不得反向依赖图；协议表不动）。**收口核对：全部零改动。**
