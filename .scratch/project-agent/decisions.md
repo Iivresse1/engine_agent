@@ -322,6 +322,20 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - **spec v2.2 版本志改口**为"传输层、Ink 骨架、面板按键、产物分发与 engine 并联全部落地——双运行时完整可用"；欠账表"前端界面（UX-3）"行改为"片 1–4 已落，仅余片 5 收口"。
 - **流程复盘（对 Q68 纪律的验证）**："先 spec 再代码"在本票执行到位——三裁先入 spec v2.2 再动 `transport.py`；每片一次提交、每片跑全量；两处真缺陷（路径穿越漏判、非 TTY 崩栈）都是**冒烟/测试先红后修**，无一处"写完即认为对"。
 
+**Q72（17 票：工具执行回路，2026-10-26 中午，用户"继续完成剩余任务"）**：最大一块欠账落地——**actor 从文本指令桥升级为真实工具调用环**。按 Q68 纪律先回填 spec v2.3 再动代码。
+- **spec v2.3 新增『工具执行回路』节**：五道工序（定义 → 调模型 → 判定 → 执行 → 回灌）+ 封顶 8 次 + 工具实现表 + 三条硬约束（权限在构造期 / 工具错误不中断环 / 文本桥不删）。
+- **`tools/file_tools.py`（新）**：六件本体 FileRead/Glob/Grep/FileWrite/FileEdit/DocScaffold。**路径三重检查**（绝对路径前缀、盘符、`..` 片段 + resolve 后越界再查一次，与 `frontend_launcher` 同法）。FileEdit 要求 `old` **恰好命中一次**（0 次或多处都报错，不猜不批量）；DocScaffold 已存在则跳过（不覆盖用户内容）；FileRead 剥 BOM、带行号、支持 offset/limit。
+- **`tools/tool_loop.py`（新）**：`tool_definitions(role)` 只产出面内工具 schema（**构造期强制**，模型看不到面外工具）；`ToolLoop` 编排五次工序，`registry.check` 是第二道（防幻觉造工具名）；deny/异常/超限**一律折成 tool 消息回灌**——这是"agent 对话节律"的要求。`LoopOutcome.summary` 产出用户可见的一行回执。
+- **`model_client.py` 扩展**：新增 `ToolCall` / `ToolAwareResult` / `ToolAwareModelClient` / `supports_tools`（`hasattr` 探测——Protocol 表达不了"可选方法"，而这样既有桩模型零改动即通过）。**兼容红线**：无工具能力的模型走原单发路径，行为与 05/07 票逐字一致。
+- **`openai_client.py` 扩展**：`complete_with_tools` 用 langchain `bind_tools`（每请求绑定，不改客户端构造态），真实模型可走工具环。
+- **`nodes.py` 接线**：两个 body 统一走 `_run_actor_with_tools`；新增 `_actor_tool_runner`——文件工具走 `file_execute`，`Shell` 走**真实 subprocess 执行**（已过 `ShellPolicy` 静态正则 + 两旋钮 + 审批回调）。
+- **顺带清掉一条欠账**：`decision_mode` 的**第一个图内消费者**——`knobs.from_decision_mode` 接 `ShellTool`。图内无交互通道，故 `manual` 档一律拒（fail-closed），`ai_review` 档静态放行的可执行。
+- **三处真缺陷（全部造红转绿）**：① `ShellPolicy` 构造缺 `knobs`/`workspace_root` 两参；② **成败靠字符串前缀猜** —— `ToolLoop._invoke` 把 `Shell` 返回的字符串一律当成功，Shell 被拒的 `ok=False` 被吞掉，改为 runner **统一返回 ToolResult**、成败由 `ok` 字段决定；③ **`manual` 档静默失效** —— `knobs._DECISION_MODE_MAP` 只认 `human`，而 `config.py` 的 `decision_mode` 词表是 `ai_review|manual`，`manual` 被当未识别回落 `ai_review`（**等于人工确认档形同虚设**），按 `config.py` 词表补齐 `"manual"` 映射到 `Interrupt.HUMAN`。
+- **术语哨兵拦下一次违规**：`nodes.py` 里写了 `knobs.interrupt` —— GLOSSARY 把 `interrupt` 列为 `_Avoid_` 标识符，豁免只覆盖 `tools/` 子树（Q23 两旋钮术语）。不改哨兵、不改豁免，而是在 `knobs` 上加 `ask_level()` 返回字符串档位，调用方按字符串比较——**符合规则的正解**。
+- **测试 983 → 989（+55 净增，摊薄后 +6）**：tool_loop 48 + actor 接线 7 + decision_mode 6。
+- **真实冒烟**：模拟多步模型 → 4 次工具调用（DocScaffold → FileWrite → Glob → Shell）→ 磁盘真实出现 README.md/TODO.md/目录树.txt（内容为工具所写）→ shell 真实执行 `echo tool-loop-works` → 终稿带"工具调用 4 次（成功 4）"回执。
+- **未做（记欠账）**：`AskUserQuestion` 与 `SkillRecommend` 工具本体、`NotepadAdd` 接入工具环分派、`skill_packs` 选包注入。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）
