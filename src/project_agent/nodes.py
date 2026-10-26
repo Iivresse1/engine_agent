@@ -957,6 +957,37 @@ def _actor_tool_runner(state: Mapping[str, Any]) -> Any:
                 )
             except PermissionError as exc:
                 return ToolResult(content=f"错误：{exc}", ok=False)
+        if tool == "AskUserQuestion":
+            # 结构化提问：不阻塞，把问题折成文本回灌——真正的提问断点由
+            # actor 后置工序读 round_text 里的内容决定是否外露
+            from project_agent.assist_tools import ask_user_question
+
+            try:
+                request = ask_user_question(
+                    str(arguments.get("question_text") or ""),
+                    str(arguments.get("explanation") or ""),
+                    arguments.get("options"),
+                    str(arguments.get("asker") or "actor"),
+                )
+            except ValueError as exc:
+                return ToolResult(content=f"错误：{exc}", ok=False)
+            lines = [request.text]
+            if request.explanation:
+                lines.append(f"解释：{request.explanation}")
+            lines.extend(f"{index}. {option}" for index, option in enumerate(request.options, 1))
+            return ToolResult(content="\n".join(lines), ok=True)
+        if tool == "SkillRecommend":
+            from project_agent.assist_tools import (
+                recommend_skills,
+                render_skill_recommendations,
+            )
+
+            items = recommend_skills(
+                str(arguments.get("purpose") or ""),
+                packs=state.get("skill_packs"),
+                limit=int(arguments.get("limit") or 3),
+            )
+            return ToolResult(content=render_skill_recommendations(items), ok=True)
         return file_execute(root, tool, arguments)
 
     return run, knobs

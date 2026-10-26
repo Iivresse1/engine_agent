@@ -106,6 +106,34 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["command"],
         },
     },
+    "AskUserQuestion": {
+        "description": "向用户提一个问题并给出可选项（会中断本轮、等下一条输入）。方向不明或需授权时用。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question_text": {"type": "string", "description": "问题主体"},
+                "explanation": {"type": "string", "description": "一句话解释：选它的后果"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "选项列表，每项形如「主体 —— 解释」",
+                },
+                "asker": {"type": "string", "description": "提问者角色（默认 actor）"},
+            },
+            "required": ["question_text"],
+        },
+    },
+    "SkillRecommend": {
+        "description": "按当前用途推荐可用技能（名字 + 一句话 + 理由）。想知道下一步能调什么时用。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "purpose": {"type": "string", "description": "当前要做的事，如『写测试』『梳理规格』"},
+                "limit": {"type": "integer", "description": "最多推荐几个（默认 3）"},
+            },
+            "required": ["purpose"],
+        },
+    },
 }
 
 

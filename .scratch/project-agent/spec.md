@@ -507,12 +507,12 @@ Status: ready-for-agent
 |---|---|---|
 | 工具执行回路 | ~~actor 只发文本指令桥，无真实工具调用环~~ → **17 票已落地**：工具 JSON schema + 调用环（封顶 8 次）+ 六件文件工具本体 + Shell 真实执行 | 已完成 |
 | decision_mode / skill_packs 图内消费者 | ~~图内零消费~~ → **两条都已落地**：`decision_mode` 接 `ShellTool` 旋钮；`skill_packs` 接 assembler 技能头注入（包两级，显式空清单=不注技能，falsy 陷阱第四处） | 已完成 |
-| AskUserQuestion 工具本体 | 仅协议级"提问断点"语义，无 tool 形式——模型仍靠**文本**提问而非 `tool_call` | 工具票 |
-| SkillRecommend 工具本体 | 矩阵里有声明，用户故事 28 依赖它，但无实现（推荐目前靠 actor 提示词） | 工具票 |
+| AskUserQuestion 工具本体 | ~~无 tool 形式~~ → **已落地**：`ask_user_question` 构造结构化提问，payload 与断点协议表逐字对齐；模型经工具环调用 | 已完成 |
+| SkillRecommend 工具本体 | ~~无实现~~ → **已落地**：`recommend_skills` 按用途与已选包排序，理由 ≤20 字代码截断；空清单不推荐 | 已完成 |
 | `/teach-me off` 恢复路径 | ~~spec 命令表与代码双缺~~ → **已落地**：`/teach-me` 命令（`off` 清回 `""` / `always` 开启 / 无参查状态） | 已完成 |
 | 桌面密钥文件读取 | ~~代码无此路径~~ → **已落地**：首启无配置时探 `<home>/Desktop/storage/apikey.txt`（裸 key 与 `api_key=` 两形态、BOM 剥）；显式配置优先；`PROJECT_AGENT_API_KEY_FILE` 显式覆盖 | 已完成 |
 | 技能包两级（包 vs 技能） | ~~只有扁平串~~ → **两级已落地**：`SkillHead.pack` + `PACKS` + `skill_heads(packs)` 按包筛选、`known_packs()`；`skill_body` 仍为模拟全文桩（**真实 SKILL.md 文件加载未做**） | 技能票（余桩替换） |
-| NotepadAdd 工具本体 | 文本桥"记录："仍为主路径；工具已声明但未接入工具环分派（17 票留） | 工具票 |
+| NotepadAdd 工具本体 | 工具环分派**已接**（图内 runner）；文本桥"记录："保留为兼容兜底 | 已完成 |
 | 旁路历史持久化 | ~~历史未落盘（重启即失）~~ → **已落地**：历史落 <state 同目录>/ask.history.json（原子写、损坏容错、落盘失败不砸问答） | 已完成 |
 | current_scope 写者 | ~~actor 声明未实现~~ → **已落地**：响应含行首「作用域：{scope}」即写 current_scope | 已完成 |
 | verify_link 接入指引 | ~~链接未验证~~ → **已落地**：ssist_link.annotate_links 抽取链接并就地标「（链接未验证）」；link_fetch 由 uild_graph 注入（默认 None 不改文本） | 已完成 |

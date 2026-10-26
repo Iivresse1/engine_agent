@@ -243,8 +243,14 @@ def test_execute_bad_arguments_not_ok(root: pathlib.Path) -> None:
 
 
 def test_executor_table_matches_schemas() -> None:
-    """可执行集合与 schema 表必须一致（多一件少一件都是契约漂移）。"""
-    assert set(EXECUTORS) | {"NotepadAdd", "Shell"} == set(TOOL_SCHEMAS)
+    """可执行集合与 schema 表必须一致（多一件少一件都是契约漂移）。
+
+    两层分派：`EXECUTORS` 是六件文件工具（纯 `file_tools`），其余
+    （Shell / NotepadAdd / AskUserQuestion / SkillRecommend）由 actor 的
+    `_actor_tool_runner` 在图内分派——两集合**并集**须等于 schema 表。
+    """
+    graph_side = {"NotepadAdd", "Shell", "AskUserQuestion", "SkillRecommend"}
+    assert set(EXECUTORS) | graph_side == set(TOOL_SCHEMAS)
 
 
 # ---- tool_definitions（构造期面裁剪）----
