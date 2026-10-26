@@ -635,8 +635,15 @@ def make_assembler_node(
                 updates["guidance_read_version"] = align_guidance_read(notes_version)
 
         # 技能头块：只注名字+一句话（懒加载——全文触发时才读入）
-        skill_lines = [f"{h.name}：{h.one_liner}" for h in skill_heads()]
-        sections.append("【技能】\n" + "\n".join(skill_lines))
+        # 17 票：按已选技能包筛选（skill_packs 的图内消费者）。
+        # 注意 falsy 陷阱：用户显式清空清单 → 不注任何技能，不得回退全集。
+        selected_packs = state.get("skill_packs")
+        selected_heads = skill_heads(
+            None if selected_packs is None else list(selected_packs)
+        )
+        skill_lines = [f"{h.name}：{h.one_liner}" for h in selected_heads]
+        if skill_lines:
+            sections.append("【技能】\n" + "\n".join(skill_lines))
 
         # 07：way4 DocScaffold 框架先行说明（无框架时才追加）
         if (

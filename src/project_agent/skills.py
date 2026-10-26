@@ -1,12 +1,14 @@
-"""技能懒加载（09 票 B 段）：技能头注册表 + 触发时全文 + 推荐理由硬约束。
+"""技能懒加载（09 票 B 段 + 17 票选包注入）：包两级 + 触发时全文 + 理由硬约束。
 
-懒加载语义（GLOSSARY『技能懒加载』）：上下文只注入技能名 + 一句话描述，
-SKILL.md 全文在被触发时才读入。skill_body 是"触发时全文读入"的语义桩——
-返回模拟的 SKILL.md 全文（# 名字标题 + one_liner 展开的约 200 字说明），
-未命中返回 None。
+两级概念（Q9/Q10 裁定，GLOSSARY『技能包』）：
+- **技能包（pack）**= 一组技能的集合；`skill_packs` 存的是**包**清单
+- **技能（skill）**= SKILL.md 单位，包内成员
 
-recommendation_reason：推荐理由 ≤20 字代码硬约束（与 02 build_ways 的
-推荐理由同法——超长即截断 [:20]，代码层而非提示层强制）。
+懒加载语义：上下文只注入**已选包内**技能的名字 + 一句话描述，SKILL.md 全文
+在被触发时才读入。`skill_body` 是"触发时全文读入"的语义桩——返回模拟的
+SKILL.md 全文，未命中返回 None。
+
+`recommendation_reason`：推荐理由 ≤20 字代码硬约束（代码层而非提示层强制）。
 """
 
 from __future__ import annotations
@@ -16,17 +18,27 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SkillHead:
-    """技能头：名字 + 一句话（上下文只注这么多）。"""
+    """技能头：名字 + 一句话（上下文只注这么多）+ 归属包。"""
 
     name: str
     one_liner: str
+    pack: str = "default"
+
+
+#: 默认包名（REPL 种子注入的初始值）
+DEFAULT_PACK = "default"
+
+#: 已知技能包 → 包说明（`/skills` 查可见）
+PACKS: dict[str, str] = {
+    DEFAULT_PACK: "内置基础包：grilling / tdd / to-spec / teach-me",
+}
 
 
 SKILLS: tuple[SkillHead, ...] = (
-    SkillHead("grilling", "连珠追问压测计划"),
-    SkillHead("tdd", "红绿重构测试先行"),
-    SkillHead("to-spec", "把决策沉淀为规格"),
-    SkillHead("teach-me", "页面式深度教学：生成可勾选概念的 HTML 教学页"),
+    SkillHead("grilling", "连珠追问压测计划", pack=DEFAULT_PACK),
+    SkillHead("tdd", "红绿重构测试先行", pack=DEFAULT_PACK),
+    SkillHead("to-spec", "把决策沉淀为规格", pack=DEFAULT_PACK),
+    SkillHead("teach-me", "页面式深度教学：生成可勾选概念的 HTML 教学页", pack=DEFAULT_PACK),
 )
 
 # 模拟的 SKILL.md 全文（one_liner 展开的约 200 字说明文本）
@@ -67,9 +79,22 @@ _SKILL_BODY_TEXT: dict[str, str] = {
 }
 
 
-def skill_heads() -> tuple[SkillHead, ...]:
-    """全部技能头（上下文注入的全部材料：名字+一句话）。"""
-    return SKILLS
+def skill_heads(packs: list[str] | tuple[str, ...] | None = None) -> tuple[SkillHead, ...]:
+    """技能头——**按已选包筛选**（`skill_packs` 的图内消费者）。
+
+    `packs` 为 None → 返回全部（向后兼容：既有调用点不传参即拿全集）；
+    为空列表 → 空（用户显式清空 = 不要技能，**不能**用 falsy 回退到全集，
+    这是 falsy 陷阱家族的第四处落点）。
+    """
+    if packs is None:
+        return SKILLS
+    selected = set(packs)
+    return tuple(head for head in SKILLS if head.pack in selected)
+
+
+def known_packs() -> tuple[str, ...]:
+    """已知技能包名（`/skills` 展示用）。"""
+    return tuple(PACKS)
 
 
 def skill_body(name: str) -> str | None:
