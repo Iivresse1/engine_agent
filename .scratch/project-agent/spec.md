@@ -20,7 +20,8 @@ Status: ready-for-agent
 | v2.0 | 2026-10-26 | **本轮回灌（Q65–Q68）**：外观定为 TS/Ink 前端 + Python 后端双运行时（ADR-0005，**冲突以新为准**：原"v1 全 CLI""Web UI/前端已砍""rich/textual 后置"三条作废）；engine 命令与每项目状态；tkinter 仅配置窗口；文案"主体 —— 解释"契约与三层渲染；teach-me 教学页通道；已知欠账清单补录 |
 | v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`DOWN_MESSAGES`（6 类下行）+ `UP_MESSAGES`（2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；决议类断点三层渲染修复 |
 | v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）、Ink 前端骨架、面板按键、产物分发与 engine 并联全部落地——**双运行时完整可用** |
-| v2.3 | 2026-10-26 | **17 票工具执行回路（Q72）**：actor 从"文本指令桥"升级为**真实工具调用环**（工具 JSON 定义 → 模型 `tool_calls` → 权限矩阵判定 → 执行 → 结果回灌 → 再循环，封顶 8 次）；FileRead/Glob/Grep/FileWrite/FileEdit/DocScaffold 六件工具本体落地；`decision_mode` 与 `skill_packs` 获得图内消费者 |
+| v2.3 | 2026-10-26 | **17 票工具执行回路（Q72）**：actor 从"文本指令桥"升级为**真实工具调用环**（工具 JSON 定义 → 模型 `tool_calls` → 权限矩阵判定 → 执行 → 结果回灌 → 再循环，封顶 8 次）；FileRead/Glob/Grep/FileWrite/FileEdit/DocScaffold 六件工具本体落地；`decision_mode` 获得图内消费者 |
+| v2.4 | 2026-10-26 | **清欠账（Q73）**：`/teach-me` 命令（off/always 恢复路径）、桌面密钥文件读取（Q64 约定路径）；两条此前 spec 与代码双缺的裁定补齐 |
 
 ## Problem Statement
 
@@ -167,6 +168,7 @@ Status: ready-for-agent
 
 - **配置格式 = .env 平面（`~/.project-agent/config.env`）**：KEY=VALUE 逐行，零新解析依赖（PyYAML 被否，不进依赖树）；旧 `config.json` 首读自动迁移（读 → 写 .env → 删旧件，内容无损）。字段序即首启字段序：`main_model / api_key / base_url / sub_model / decision_mode`。
 - **BOM 容错**：读侧剥 `\ufeff`（Windows PowerShell 管道/写盘常见伪影，不剥则首键名被污染、配置静默丢失）；问卷输入行同样剥。
+- **桌面密钥兜底（Q64 用户明示路径，v2.4 落地）**：**无配置文件**时先探 `<home>/Desktop/storage/apikey.txt`（兼容 `桌面/`；裸 key 与 `api_key=` 两形态；BOM 剥）；命中则问卷免问密钥（提示来源，回车即用发现值）。**显式配置优先**——已有 `config.env` 时不探桌面。`PROJECT_AGENT_HOME` 与 `PROJECT_AGENT_API_KEY_FILE` 为**独占语义**的覆盖（设了就只读它，供测试隔离与便携使用）。
 - **配置全局、状态每项目**：配置在 `~/.project-agent/`（一次配置任何目录可用）；会话状态三件 `state.db / state.db.session.json / ledger.json` 落在 `<cwd>/.project-agent/`（换目录即新会话）。
 - **OpenAI 兼容客户端**：ChatOpenAI 打 OpenAI 兼容端点（DeepSeek/官方皆可）；`base_url` 缺 scheme 时归一补 `https://`、去尾斜杠；`langchain_openai` **惰性导入**（模块导入零网络零重依赖，测试注入 chat 桩即零依赖跑协议面）；用量双路读取（`usage_metadata` 优先 → `response_metadata.token_usage` 兜底）。
 - **运行时一站装配**：主/廉价客户端各包 MeteredModel 并**共享同一 TokenLedger**；`cheap = sub_model`（缺省同主模型，同一实例省一次构造；cheap 非 None 即挂压缩横切）；AskBypass 用独立 thread（`{thread_id}-ask` 后缀，ADR-0002 物理隔离）；`client_factory` 为注入缝（测试零网络全链路）。
@@ -432,7 +434,8 @@ Status: ready-for-agent
 ### 路由
 
 - **REPL 混合路由三层**：斜杠命令（前缀匹配，零 LLM）→ 报错特征规则预筛（Traceback/Error: 等 + demo 阶段活跃）→ LLM 窄分类兜底（只判"报错回传 vs 普通输入"）。
-- **斜杠命令**：`/help /status /compact /ask-for-help /skills /mode /exit`（前缀匹配，按长度降序取最长命中）。
+- **斜杠命令**：`/help /status /compact /ask-for-help /skills /teach-me /mode /exit`（前缀匹配，按长度降序取最长命中）。
+- **`/teach-me`**：查/改深度教学持久偏好——`off` 清回 `""`（恢复每轮四选询问）、`always` 每轮直出教学页、无参查状态（13 票 B 节裁定的恢复路径）。
 - **`/ask-for-help` 前置条件**：仅项目工作流内可用（`build_way` 已设）；工作流外给拒绝提示（Q35；旁路不承接通用对话——通用形态已被 way1 吸收）。
 - **CLI 旗标**：`--state PATH` 断点库路径（默认 `<cwd>/.project-agent/state.db`，每项目一会话）、`--config PATH` 配置路径（默认全局 `~/.project-agent/config.env`）、`--new-session` 丢弃续跑另起新 thread（Q59/Q67）。（**`/teach-me off` 恢复路径未实现，见欠账**）
 - **首启两层**：见"运行时与配置"节（应用级=配置窗口 + 终端 fallback；项目级=单题指引偏好）。
@@ -506,8 +509,8 @@ Status: ready-for-agent
 | decision_mode / skill_packs 图内消费者 | ~~图内零消费~~ → `decision_mode` 已接 `ShellTool` 旋钮（`knobs.from_decision_mode`，`manual`/`ai_review` 两档生效）；`skill_packs` 选包注入**仍未接** | 权限接线票（余一半） |
 | AskUserQuestion 工具本体 | 仅协议级"提问断点"语义，无 tool 形式——模型仍靠**文本**提问而非 `tool_call` | 工具票 |
 | SkillRecommend 工具本体 | 矩阵里有声明，用户故事 28 依赖它，但无实现（推荐目前靠 actor 提示词） | 工具票 |
-| `/teach-me off` 恢复路径 | 13 票 B 节裁定"清回 `""`"，spec 命令表与代码 `_COMMANDS` 双缺 | 指引票 |
-| 桌面密钥文件读取 | Q64 用户明示可从 `storage/apikey.txt` 读键，代码无此路径（现只读 `config.env`） | 配置票 |
+| `/teach-me off` 恢复路径 | ~~spec 命令表与代码双缺~~ → **已落地**：`/teach-me` 命令（`off` 清回 `""` / `always` 开启 / 无参查状态） | 已完成 |
+| 桌面密钥文件读取 | ~~代码无此路径~~ → **已落地**：首启无配置时探 `<home>/Desktop/storage/apikey.txt`（裸 key 与 `api_key=` 两形态、BOM 剥）；显式配置优先；`PROJECT_AGENT_API_KEY_FILE` 显式覆盖 | 已完成 |
 | 技能包两级（包 vs 技能） | Q9/Q10 裁定"启动选包、包内多技能、完整 Matt Pocock 包"；现状只有 `skill_packs: list[str]` 扁平串 + 4 条 SkillHead，`skill_body` 为模拟全文桩 | 技能票 |
 | NotepadAdd 工具本体 | 文本桥"记录："仍为主路径；工具已声明但未接入工具环分派（17 票留） | 工具票 |
 | 旁路 checkpointer 持久化 | AskBypass 有独立 thread，但历史未落盘（重启即失） | 旁路票 |

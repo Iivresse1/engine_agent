@@ -29,7 +29,16 @@ _ASK_OUTSIDE_WORKFLOW = "仅项目工作流内可用"
 _ASK_NOT_WIRED = "旁路未接线（需 model）"
 
 # 命令按长度降序前缀匹配（spec『路由』：斜杠命令前缀匹配，零 LLM）
-_COMMANDS = ("/help", "/status", "/compact", "/ask-for-help", "/skills", "/mode", "/exit")
+_COMMANDS = (
+    "/help",
+    "/status",
+    "/compact",
+    "/ask-for-help",
+    "/skills",
+    "/teach-me",
+    "/mode",
+    "/exit",
+)
 
 # /mode 决策模式词表（Q19：AI 自动审核 / 全权人工；knobs.from_decision_mode 同源）
 _MODE_LABELS: dict[str, str] = {
@@ -187,8 +196,33 @@ class ReplHost:
         if command == "/skills":
             self._skills(text)
             return False
+        if command == "/teach-me":
+            self._teach_me(text)
+            return False
         self._notice(f"未知命令 {text}。可用命令：{' '.join(_COMMANDS)}")
         return False
+
+    def _teach_me(self, text: str) -> None:
+        """/teach-me：查/改深度教学持久偏好（13 票 B 节裁定的恢复路径）。
+
+        无参 → 显示当前偏好；`off` → 清回 ""（13 票裁定，Lead 裁定注明
+        "用户可否决"）；`always` → 设为每轮直出教学页。其它值 → 提示。
+        """
+        current = str(self._last_state.get("teach_me_pref") or "")
+        arg = text[len("/teach-me"):].strip().lower()
+        if not arg:
+            label = "已设为每轮直接生成教学页（always）" if current == "always" else "未开启（每轮按四选询问）"
+            self._notice(f"深度教学偏好：{label}。用法：/teach-me off 关闭、/teach-me always 开启")
+            return
+        if arg in ("off", "关", "关闭", "不用"):
+            self._last_state["teach_me_pref"] = ""
+            self._notice("深度教学偏好已关闭（恢复每轮四选询问）。")
+            return
+        if arg in ("always", "都", "以后都", "开"):
+            self._last_state["teach_me_pref"] = "always"
+            self._notice("深度教学偏好已开启（之后每轮自动生成教学页）。")
+            return
+        self._notice(f"未识别取值 {arg!r}。用法：/teach-me off | always")
 
     def _mode(self, text: str) -> None:
         """/mode：查/改决策模式（用户故事 3——运行时配置入口）。
