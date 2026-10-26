@@ -305,6 +305,15 @@ start → ask_tasks → build_ways(4选1) → guidance_trigger(3态)
 - 测试：前端 12 → **26**（+6 渲染 +8 面板取数；原 5 例镜像测试重写为测真实实现）。
 - **未做**：片 4（产物下载 + engine 并联）、片 5（收口）。
 
+**Q71 三续（UX-3 片 4：产物分发 + engine 并联，2026-10-26 中午）**：双运行时从"能跑"到"单命令可用"。
+- **`frontend_launcher.py`**（纯逻辑，网络经 `fetch` 注入 → 测试零网络）：`ensure_frontend` 查找顺序 = **已安装目录 → 开发态 `frontend/` → 下载安装到 `~/.project-agent/frontend/<version>/`**；`_extract` 支持 zip/tar，**拒绝对路径、盘符、`..` 穿越**；`frontend_url` 从环境变量 `PROJECT_AGENT_FRONTEND_URL` 取（不硬编码不存在的 URL）；**任何失败一律返回 None**——降级优先于报错。
+- **`engine` 并联**：新增 `--no-ui` / `--ui`；默认尝试前端。`_launch_frontend` 先**探活**（非 TTY 下前端退码 2）→ 通过则以 `Popen` 交接，后端转协议服务（`make_serve` + `asyncio.run`）；不通过 → 裸终端 REPL。
+- **两处真缺陷（造红转绿）**：① `_extract` 的穿越检查**漏掉绝对路径**——Windows 上 `Path("/abs/x").is_absolute()` 为 False 且 zipfile 不规范化开头 `/`，改用显式前缀 + 盘符 + `..` 三重检查；② 前端在**非 TTY** 直接崩栈（Ink "Raw mode is not supported"）——入口先判 `canRenderInk()`（isTTY 且 setRawMode 可调用），不支持则以**码 2** 退出并说明，`engine` 据码 2 回落。
+- **红线哨兵自身缺陷修复**：`test_no_network_reporting` 原用 `ast.walk` 扫全文件，却标注"顶层零网络 import"——语义与实现不符（此前靠给 `gui_config.py` 整文件豁免绕过）。本轮改为**只扫模块顶层**（函数内惰性导入不算），把 `frontend_launcher.py` 加入惰性集合并加"顶层出现即倒退"断言。**这是修哨兵不是放宽标准**：顶层 import = 进程启动即有外发能力，函数内惰性导入 = 用户主动动作才发生，二者语义本就不同。
+- **测试 906 → 928（+22）**：启动器 21（布局/发现顺序/URL 解析/下载安装/带顶层目录的 tar/下载失败/空载荷/缺入口/穿越拒绝/格式拒绝/两条红线）+ 哨兵语义测试。前端 26 → 30（+4 入口降级判定）。
+- **联调验证**：`--no-ui` 裸终端正常（开场三行 + 再见，码 0）；`--ui` 非 TTY 下探活得码 2 → 回落裸终端、零崩溃；开发态产物发现命中 `frontend/dist/main.js`。
+- **未做**：片 5（收口：合并、全量、勾票）。
+
 - Q39 token 按 agent 记账落地（= harness Observe 模块的具体化）
 - Q48–Q52（上下文工程层边界问题，已摆）
 - ~~Q47 archify 渲染交互式架构图（待图定稿）~~ → **已裁不做**（Q47 终裁：终稿图以简图形式交付；spec 未承诺该能力，台账此前 stale）

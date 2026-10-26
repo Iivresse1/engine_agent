@@ -14,6 +14,7 @@ decision_mode（配置开关）/skill_packs（默认包）。
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -86,6 +87,40 @@ def _first_run_config(store: ConfigStore, io: IO) -> AppConfig:
     return ensure_config(store, io)
 
 
+def _launch_frontend(state_path: Path) -> bool:
+    """UX-3 片 4：拉起 Ink 前端；返回 True 表示前端正在运行（后端转协议服务）。
+
+    启动前先探活：前端在非 TTY 环境会以码 2 退出（Ink 需要 raw mode）。
+    探活失败 / 无 Node / 无产物 → False，调用方退裸终端（**降级优先于报错**）。
+    """
+    import shutil
+    import subprocess
+
+    from project_agent import __version__
+    from project_agent.frontend_launcher import ensure_frontend, entry_path
+
+    directory = ensure_frontend(__version__)
+    if directory is None:
+        return False
+    node = shutil.which("node")
+    if node is None:
+        return False  # 无 Node 运行时 → 退终端
+    command = [node, str(entry_path(directory)), str(Path.cwd())]
+    # 探活：非 TTY 下前端会立刻以码 2 退出并说明原因——此处据此决定降级
+    probe = subprocess.run(  # noqa: S603 - 固定 node + 本包自带产物，无用户输入拼接
+        command, cwd=str(directory), capture_output=True, timeout=20
+    )
+    if probe.returncode == 2:
+        return False
+    # 探活通过：正式拉起（交接给前端，后端只提供协议服务）
+    try:
+        subprocess.Popen(command, cwd=str(directory))  # noqa: S603
+    except OSError:
+        return False
+    return True
+
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="engine")
     parser.add_argument("--config", type=Path, default=default_config_path())
@@ -97,6 +132,16 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--new-session", action="store_true", help="开新 thread（不接续旧断点）"
+    )
+    parser.add_argument(
+        "--no-ui",
+        action="store_true",
+        help="不拉起前端界面，强制裸终端（前端不可用时的等价行为）",
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="强制要求前端界面（不可用则直接退终端，不询问）",
     )
     args = parser.parse_args(argv)
 
@@ -121,7 +166,7 @@ def main(argv: list[str] | None = None) -> None:
             cheap_model=runtime.cheap_model,
             workspace_root=Path.cwd(),
         )
-        ReplHost(
+        host = ReplHost(
             app,
             io,
             thread_id,
@@ -132,7 +177,19 @@ def main(argv: list[str] | None = None) -> None:
                 "decision_mode": config.decision_mode,
                 "skill_packs": ["default"],
             },
-        ).run()
+        )
+        # UX-3 片 4：前端可用则拉起并接管观感，后端转为协议服务；
+        # 不可用（无产物/无 Node/非 TTY/下载失败/--no-ui）→ 裸终端降级。
+        if not args.no_ui and _launch_frontend(state_path):
+            from project_agent.transport import make_serve
+
+            serve = make_serve(host, state_path=state_path, thread_id=thread_id)
+            try:
+                asyncio.run(serve())
+            except KeyboardInterrupt:
+                pass
+            return
+        host.run()
 
 
 if __name__ == "__main__":

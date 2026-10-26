@@ -1,6 +1,6 @@
 # 16: UX-3 前端与传输 —— WebSocket 传输 + Ink 前端 + Bun 打包
 
-**Status:** in_progress（片 1–3 已落地：传输层 + Ink 骨架 + 面板按键，906 后端测试 + 26 前端测试全绿；片 4–5 未完）
+**Status:** in_progress（片 1–4 已落地；仅余片 5 收口。928 后端测试 + 30 前端测试全绿）
 **类型:** UX 实现票（ADR-0005 双运行时）
 **开票:** 2026-10-26
 **依赖:** 15 票（协议消息表 + 翻译层已落）
@@ -13,6 +13,10 @@
 - **片 3 面板与按键**：常驻按键提示行 `Enter 提交 · Ctrl+O 状态面板 · Ctrl+T 教学页 · Esc 退出`；`Ctrl+O` 折叠状态面板（显示最近 `task_brief:` 状态行与最近断点）；`Ctrl+T` 折叠教学页面板（显示路径/轮次，不内联渲染 HTML）；教学页到达时自动展开。
 - **可测性重构**：把纯展示部分抽成 `TranscriptView`（无 hooks/无副作用），用 ink `renderToString` 做真实渲染断言（6 例）；`toEntries` 导出为纯函数，面板取数直接测真实实现而非镜像副本。`subscribe` 改为 prop 注入（不再依赖全局单例），便于测试与替换。
 - **工具事实**：Ink 8 无 `lastFrame`；`renderToString` 不跑 effect（需纯组件才可渲染断言）；Windows 下无 `pty`/`termios`（PTY 冒烟不可用）——这三点促使"纯视图 + renderToString"成为唯一可靠的渲染测试路径。
+- **片 4 产物分发与 engine 并联**：`frontend_launcher.py`（纯逻辑，网络经 `fetch` 注入，测试零网络）——`ensure_frontend` 顺序 = 已安装 → 开发态 → 下载到 `~/.project-agent/frontend/<version>/`；`_extract` **拒绝对路径/盘符/`..` 穿越**；**任何失败返回 None**（降级优先于报错）。`engine` 增加 `--no-ui` / `--ui` 两个开关，默认尝试前端；探活失败即回落裸终端。
+- **两处真缺陷（造红转绿）**：① `_extract` 的路径穿越检查漏掉**绝对路径**——Windows 上 `Path("/abs/x").is_absolute()` 为 False，zipfile 也不规范化开头 `/`，改用显式前缀 + 盘符 + `..` 三重检查；② 前端在**非 TTY** 环境直接崩栈（Ink 报 "Raw mode is not supported"）——改为入口先判 `canRenderInk()`，不支持则以**码 2** 退出并说明，`engine` 据码 2 回落裸终端。
+- **红线哨兵修正**：`test_no_network_reporting` 原实现用 `ast.walk` 扫全文件却标注"顶层零网络 import"——语义与实现不符，上次是靠给 `gui_config.py` 整个文件开豁免绕过。本轮改为**只扫模块顶层**（函数内惰性导入不算），新增 `frontend_launcher.py` 到惰性模块集合并加"顶层出现即倒退"断言。这是哨兵自身的缺陷修复，不是放宽标准。
+- **片 4 联调验证**：`--no-ui` 走裸终端（开场三行 + 再见，退出码 0）；`--ui` 在非 TTY 下探活得码 2 → 正确回落裸终端、零崩溃；开发态产物发现命中 `frontend/dist/main.js`。
 
 ## 目标
 
