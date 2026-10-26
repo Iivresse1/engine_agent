@@ -44,9 +44,14 @@ def build_model_runtime(
     workspace_root: Path,
     thread_id: str,
     client_factory: ClientFactory = OpenAICompatClient,
+    ask_history_path: Path | None = None,
 ) -> ModelRuntime:
     """config → 运行时。client_factory 注入缝：测试传桩（签名同
-    OpenAICompatClient(model, api_key, base_url)）即零网络全链路。"""
+    OpenAICompatClient(model, api_key, base_url)）即零网络全链路。
+
+    `ask_history_path` 非 None → 旁路问答历史落盘（v2.4：清"重启即失"欠账）；
+    None → 仅内存（既有测试零改动）。
+    """
     ledger = TokenLedger(ledger_path)
     main = MeteredModel(
         client_factory(config.main_model, config.api_key, config.base_url), ledger
@@ -59,7 +64,9 @@ def build_model_runtime(
             client_factory(sub_name, config.api_key, config.base_url), ledger
         )
     shared_docs = SharedDocs(workspace_root)
-    ask_bypass = AskBypass(main, shared_docs, f"{thread_id}-ask")
+    ask_bypass = AskBypass(
+        main, shared_docs, f"{thread_id}-ask", history_path=ask_history_path
+    )
     return ModelRuntime(
         model=main,
         cheap_model=cheap,

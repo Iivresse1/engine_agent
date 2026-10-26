@@ -21,7 +21,7 @@ Status: ready-for-agent
 | v2.1 | 2026-10-26 | **UX-2 第一片（Q69）**：前后端协议消息契约落地——`DOWN_MESSAGES`（6 类下行）+ `UP_MESSAGES`（2 类上行）+ 载荷校验 + 终端降级渲染；`messages.py` 纯翻译层；决议类断点三层渲染修复 |
 | v2.2 | 2026-10-26 | **UX-2 传输三裁（Q71）**：随机端口 + 握手文件发现；前端产物首次运行下载；断线复用 thread_id 续跑。传输层（`transport.py`）、Ink 前端骨架、面板按键、产物分发与 engine 并联全部落地——**双运行时完整可用** |
 | v2.3 | 2026-10-26 | **17 票工具执行回路（Q72）**：actor 从"文本指令桥"升级为**真实工具调用环**（工具 JSON 定义 → 模型 `tool_calls` → 权限矩阵判定 → 执行 → 结果回灌 → 再循环，封顶 8 次）；FileRead/Glob/Grep/FileWrite/FileEdit/DocScaffold 六件工具本体落地；`decision_mode` 获得图内消费者 |
-| v2.4 | 2026-10-26 | **清欠账（Q73）**：`/teach-me` 命令（off/always 恢复路径）、桌面密钥文件读取（Q64 约定路径）；两条此前 spec 与代码双缺的裁定补齐 |
+| v2.4 | 2026-10-26 | **清欠账（Q73–Q75）**：`/teach-me` 恢复路径、桌面密钥文件读取、`skill_packs` 图内消费与技能包两级、旁路历史持久化、`current_scope` 写者、指引链接验证——六条欠账落地 |
 
 ## Problem Statement
 
@@ -513,9 +513,9 @@ Status: ready-for-agent
 | 桌面密钥文件读取 | ~~代码无此路径~~ → **已落地**：首启无配置时探 `<home>/Desktop/storage/apikey.txt`（裸 key 与 `api_key=` 两形态、BOM 剥）；显式配置优先；`PROJECT_AGENT_API_KEY_FILE` 显式覆盖 | 已完成 |
 | 技能包两级（包 vs 技能） | ~~只有扁平串~~ → **两级已落地**：`SkillHead.pack` + `PACKS` + `skill_heads(packs)` 按包筛选、`known_packs()`；`skill_body` 仍为模拟全文桩（**真实 SKILL.md 文件加载未做**） | 技能票（余桩替换） |
 | NotepadAdd 工具本体 | 文本桥"记录："仍为主路径；工具已声明但未接入工具环分派（17 票留） | 工具票 |
-| 旁路 checkpointer 持久化 | AskBypass 有独立 thread，但历史未落盘（重启即失） | 旁路票 |
-| current_scope 写者 | assembler 落定，actor 声明未实现（17 票后可由 FileWrite 间接体现，尚未显式写） | 作用域票 |
-| verify_link 接入指引 | 指引里的文档链接未做抓取验证（用户故事 36 未满足） | 指引票 |
+| 旁路历史持久化 | ~~历史未落盘（重启即失）~~ → **已落地**：历史落 <state 同目录>/ask.history.json（原子写、损坏容错、落盘失败不砸问答） | 已完成 |
+| current_scope 写者 | ~~actor 声明未实现~~ → **已落地**：响应含行首「作用域：{scope}」即写 current_scope | 已完成 |
+| verify_link 接入指引 | ~~链接未验证~~ → **已落地**：ssist_link.annotate_links 抽取链接并就地标「（链接未验证）」；link_fetch 由 uild_graph 注入（默认 None 不改文本） | 已完成 |
 | final_report 检索注入 | finalizer 产出 final_report，ask_tasks 未做检索注入 | 记忆票 |
 | ask 档普通讲解的循环 | 指引四选已真断点化，但"讲什么"的内容循环仍单发 | 指引票 |
 | 压缩挂点补全 | finalizer / 旁路 / 指引三条 LLM 路径未挂压缩检查 | 压缩票 |

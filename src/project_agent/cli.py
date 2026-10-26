@@ -159,6 +159,8 @@ def main(argv: list[str] | None = None) -> None:
             ledger_path=state_path.with_name("ledger.json"),
             workspace_root=Path.cwd(),
             thread_id=thread_id,
+            # v2.4：旁路问答历史落盘（与 state 同目录，重启接续追问上下文）
+            ask_history_path=state_path.with_name("ask.history.json"),
         )
         app = build_graph(
             checkpointer=checkpointer,

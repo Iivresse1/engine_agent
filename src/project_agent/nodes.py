@@ -45,6 +45,7 @@ from langchain_core.runnables import RunnableConfig
 # 1.2.17 的签名白名单只认 Optional[RunnableConfig]（含字符串注解形式），
 # 写 `RunnableConfig | None` 会触发 UserWarning 且 config 不再注入。
 from project_agent.ask_agent import build_guidance
+from project_agent.assist_link import annotate_links
 from project_agent.compression import (
     DEFAULT_BUDGET_TOKENS,
     CompactionPack,
@@ -736,6 +737,18 @@ _NOTE_MARKER = "记录："
 _SKILL_MARKER = "技能："
 _RECOMMEND_RE = re.compile(r"推荐技能：([^\n（(]+)[（(]([^）)]*)[）)]")
 
+# 17 票：作用域声明指令（行首"作用域：{scope}"）——current_scope 的 actor 写者
+_SCOPE_RE = re.compile(r"^\s*作用域：\s*(\S+)", re.MULTILINE)
+
+
+def _parse_scope(text: str) -> str | None:
+    """「作用域：{scope}」解析：首个行首命中即取；无 → None。"""
+    match = _SCOPE_RE.search(text or "")
+    if match is None:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
 
 def _parse_notes(text: str) -> list[str]:
     """「记录：{note}」指令解析：str.split(_NOTE_MARKER) 后取非空段，
@@ -1021,8 +1034,13 @@ _ACTOR_BODIES: dict[str, Any] = {
 }
 
 
-def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None):
-    """actor 节点工厂（05 票终裁 7；06 票扩 shared_docs）。
+def make_actor_node(
+    model: Any = None,
+    shared_docs: Optional[SharedDocs] = None,
+    *,
+    link_fetch: Any = None,
+):
+    """actor 节点工厂（05 票终裁 7；06 票扩 shared_docs；17 票工具环）。
 
     - 每轮派生 cfg=derive_actor_config(build_way, guidance_mode)——仅用于
       身体选择 `_ACTOR_BODIES.get(way, way1 身体)`，不持久化不写 state
@@ -1118,6 +1136,10 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
             "todos": new_todos,
             "round_summary": round_summary,
         }
+        # 17 票：current_scope 的 actor 写者——响应含行首"作用域：{scope}"即声明
+        declared_scope = _parse_scope(text)
+        if declared_scope is not None:
+            updates["current_scope"] = declared_scope
         if shared_docs is not None:
             # ① 每产出一轮 +1（首个工作轮=【R1】；跨 invoke 持续靠 checkpointer）
             round_count = int(state.get("round_count") or 0) + 1
@@ -1178,6 +1200,8 @@ def make_actor_node(model: Any = None, shared_docs: Optional[SharedDocs] = None)
                         doc_slice=shared_docs.read_round(latest_round) or "",
                         thread_id=_thread_id_from(config),
                     )
+                    # 用户故事 36：指引里的文档链接就地标注死链（无 fetch 时不改文本）
+                    guidance_text = annotate_links(guidance_text, fetch=link_fetch)
                     round_text = f"{round_text}\n{guidance_text}"
                 updates["guidance_read_version"] = align_guidance_read(notes_version)
         updates.update(_round_end(round_text, {**state, "todos": new_todos}))

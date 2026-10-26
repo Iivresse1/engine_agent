@@ -71,6 +71,7 @@ def build_graph(
     workspace_root: Path | None = None,
     cheap_model: Any = None,
     store: Any = None,
+    link_fetch: Any = None,
 ) -> Any:
     """workspace_root 非 None → SharedDocs(workspace_root) 同源注入
     assembler 与 actor 两工厂（09：assembler 读 notepad 切片/版本门，
@@ -109,12 +110,12 @@ def build_graph(
     graph.add_node(
         ACTOR,
         with_compression(
-            make_actor_node(model, shared_docs=shared_docs),
+            make_actor_node(model, shared_docs=shared_docs, link_fetch=link_fetch),
             cheap_model=cheap_model,
             shared_docs=shared_docs,
         )
         if cheap_model is not None
-        else make_actor_node(model, shared_docs=shared_docs),
+        else make_actor_node(model, shared_docs=shared_docs, link_fetch=link_fetch),
     )
     graph.add_node(
         VERIFIER,
